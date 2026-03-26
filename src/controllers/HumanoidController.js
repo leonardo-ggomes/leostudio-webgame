@@ -4,47 +4,39 @@
 import * as THREE from 'three';
 import * as S from '../state.js';
 
-const GRAV = -9.81;
-
-// Estados de movimento — máquina de estados explícita
-const STATE = {
-  IDLE:    'idle',
-  WALK:    'walk',
-  RUN:     'run',
-  JUMP:    'jump',   // fase ascendente
-  FALL:    'fall',   // fase descendente / no ar sem ter pulado
-  LAND:    'land',   // frame de pouso (breve, antes de voltar ao idle/walk)
-};
-
-// Quanto tempo (s) o personagem fica no estado LAND antes de voltar
+const GRAV         = -9.81;
 const LAND_DURATION = 0.2;
+// Drag aéreo horizontal: quanto a vel XZ decai por segundo no ar (0=sem decaimento)
+const AIR_DRAG     = 2.0;
 
-// Controle aéreo reduzido: 0 = sem controle, 1 = controle total
-const AIR_CONTROL = 0.15;
+const STATE = { IDLE:'idle', WALK:'walk', RUN:'run', JUMP:'jump', FALL:'fall', LAND:'land' };
 
 export class HumanoidController {
   onEnter(entity) {
     this._vel          = new THREE.Vector3();
     this._grounded     = false;
-    this._state        = STATE.IDLE;
-    this._jumpConsumed = false;  // impede re-pulo ao segurar Space
-    this._landTimer    = 0;      // tempo restante no estado LAND
     this._wasGrounded  = false;
+    this._state        = STATE.IDLE;
+    this._jumpConsumed = false;
+    this._landTimer    = 0;
   }
 
   onExit(entity) {
-    entity.animMgr?.setState('idle');
+    if (entity.animMgr) {
+      entity.animMgr.currentState = null;
+      entity.animMgr.setState('idle');
+    }
   }
 
   update(dt, input, entity) {
     const ch = entity.controllable;
     const m  = entity.mesh;
-    if (!m) return;
+    if (!m || !ch) return;
 
-    // ---- Determina se está em estado aéreo ----
-    const airborne = !this._grounded;
+    // ---- Salvar estado anterior do chão ----
+    this._wasGrounded = this._grounded;
 
-    // ---- Intenção de movimento (sempre calculada) ----
+    // ---- Intenção de movimento ----
     const fwd = new THREE.Vector3(-Math.sin(S.camYaw), 0, -Math.cos(S.camYaw));
     const rgt = new THREE.Vector3( Math.cos(S.camYaw), 0, -Math.sin(S.camYaw));
     const mv  = new THREE.Vector3();
@@ -55,48 +47,52 @@ export class HumanoidController {
     const hasInput = mv.length() > .01;
     if (hasInput) mv.normalize();
 
-    // ---- Sprinting só no chão ----
     const sprinting = input.sprint && this._grounded;
     const speed     = sprinting ? ch.stats.sprint : ch.stats.speed;
-    const accel     = ch.stats.accel;
 
-    // ---- Aceleração XZ ----
-    // No ar: controle muito reduzido (não zeramos, mas limitamos influência)
-    const controlFactor = airborne ? AIR_CONTROL : 1;
-    const targetX = hasInput ? mv.x * speed : 0;
-    const targetZ = hasInput ? mv.z * speed : 0;
-    this._vel.x += (targetX - this._vel.x) * Math.min(1, accel * controlFactor * dt);
-    this._vel.z += (targetZ - this._vel.z) * Math.min(1, accel * controlFactor * dt);
+    // ---- Velocidade XZ ----
+    if (this._grounded) {
+      // No chão: aceleração normal para o target
+      const accel  = ch.stats.accel;
+      const tgtX   = hasInput ? mv.x * speed : 0;
+      const tgtZ   = hasInput ? mv.z * speed : 0;
+      this._vel.x += (tgtX - this._vel.x) * Math.min(1, accel * dt);
+      this._vel.z += (tgtZ - this._vel.z) * Math.min(1, accel * dt);
+    } else {
+      // Bug 2 fix: no ar, APENAS aplica drag — zero influência de input
+      const drag = Math.max(0, 1 - AIR_DRAG * dt);
+      this._vel.x *= drag;
+      this._vel.z *= drag;
+    }
 
-    // ---- Gravidade ----
+    // ---- Gravidade (Bug 3 fix: physics.step NÃO roda no humanoid — ver entities.js) ----
     this._vel.y += GRAV * dt;
 
-    // ---- Move ----
+    // ---- Mover ----
     m.position.addScaledVector(this._vel, dt);
 
-    // ---- Colisão com chão (y=0) ----
-    this._wasGrounded = this._grounded;
-    if (m.position.y <= 0) {
-      m.position.y = 0;
+    // ---- Colisão com chão ----
+    // Bug 9 fix: usar bounding box do Group para encontrar a base real do mesh
+    const box = new THREE.Box3().setFromObject(m);
+    const base = box.min.y; // ponto mais baixo do mesh no espaço do mundo
+    if (base <= 0) {
+      m.position.y -= base; // empurra de volta para y=0
       if (this._vel.y < 0) this._vel.y = 0;
       this._grounded = true;
     } else {
       this._grounded = false;
     }
 
-    // ---- Pulo — edge detect no Space (só dispara ao pressionar, não ao segurar) ----
+    // ---- Pulo com edge-detect ----
     const jumpDown = input.jump;
     if (jumpDown && !this._jumpConsumed && this._grounded) {
-      this._vel.y      = ch.stats.jump;
-      this._grounded   = false;
+      this._vel.y        = ch.stats.jump;
+      this._grounded     = false;
       this._jumpConsumed = true;
-      this._state      = STATE.JUMP;
-      entity.animMgr?.setState('jump', { once: true });
     }
-    // Libera o pulo assim que soltar a tecla
     if (!jumpDown) this._jumpConsumed = false;
 
-    // ---- Rotação do mesh — bloqueada enquanto airborne ----
+    // ---- Rotação — apenas no chão e fora do landTimer ----
     if (hasInput && this._grounded && this._landTimer <= 0) {
       const ta = Math.atan2(mv.x, mv.z);
       let df   = ta - m.rotation.y;
@@ -105,66 +101,54 @@ export class HumanoidController {
       m.rotation.y += df * Math.min(1, ch.stats.rotSpd * dt);
     }
 
-    // ---- Máquina de estados de animação ----
+    // ---- State machine de animação ----
     this._updateAnimState(dt, entity, hasInput, sprinting);
   }
 
   _updateAnimState(dt, entity, hasInput, sprinting) {
     const mgr = entity.animMgr;
 
-    // ---- Aterrissagem: detecta transição ar → chão ----
+    // Aterrissagem
     if (!this._wasGrounded && this._grounded && this._state !== STATE.IDLE) {
       this._state     = STATE.LAND;
       this._landTimer = LAND_DURATION;
-      mgr?.setState('land', { once: true });
+      if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('land', { once: true }); }
       return;
     }
 
-    // ---- Contador de pouso ----
+    // Contador de pouso
     if (this._landTimer > 0) {
       this._landTimer -= dt;
-      return; // animação de pouso ainda tocando, não interrompe
+      return;
     }
 
-    // ---- Estados aéreos ----
+    // Aéreo
     if (!this._grounded) {
-      if (this._vel.y > 0 && this._state !== STATE.JUMP) {
-        this._state = STATE.JUMP;
-        mgr?.setState('jump', { once: true });
-      } else if (this._vel.y <= 0 && this._state !== STATE.FALL) {
-        this._state = STATE.FALL;
-        mgr?.setState('fall');
+      if (this._vel.y > 0) {
+        if (this._state !== STATE.JUMP) {
+          this._state = STATE.JUMP;
+          if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('jump', { once: true }); }
+        }
+      } else {
+        if (this._state !== STATE.FALL) {
+          this._state = STATE.FALL;
+          if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('fall'); }
+        }
       }
-      return; // no ar → não atualiza mais nada
+      return;
     }
 
-    // ---- Estados terrestres ----
-    if (!hasInput) {
-      if (this._state !== STATE.IDLE) {
-        this._state = STATE.IDLE;
-        mgr?.setState('idle');
-      }
-    } else if (sprinting) {
-      if (this._state !== STATE.RUN) {
-        this._state = STATE.RUN;
-        mgr?.setState('run');
-      }
-    } else {
-      if (this._state !== STATE.WALK) {
-        this._state = STATE.WALK;
-        mgr?.setState('walk');
-      }
+    // Terrestre
+    let nextState = hasInput ? (sprinting ? STATE.RUN : STATE.WALK) : STATE.IDLE;
+    if (this._state !== nextState) {
+      this._state = nextState;
+      if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState(nextState); }
     }
   }
 
   getCameraOffset(entity) {
     const ch = entity.controllable;
-    return {
-      yawOffset:    S.camYaw,
-      pitchOffset:  S.camPitch,
-      distance:     ch.stats.camD,
-      heightTarget: ch.stats.camY,
-    };
+    return { yawOffset: S.camYaw, pitchOffset: S.camPitch, distance: ch.stats.camD, heightTarget: ch.stats.camY };
   }
 
   getVelocity()  { return this._vel; }

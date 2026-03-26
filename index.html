@@ -45,7 +45,10 @@
   <div class="am-item" onclick="E.addObj('plane')">▭ Plano</div>
   <div class="am-sep"></div>
   <div class="am-item" onclick="E.addObj('humanoid')">⬤ Humanoid</div>
+  <div class="am-sep"></div>
   <div class="am-item" onclick="E.addObj('vehicle')">🚗 Veículo</div>
+  <div class="am-item" onclick="E.addObj('helicopter')">🚁 Helicóptero</div>
+  <div class="am-item" onclick="E.addObj('aircraft')">✈ Avião</div>
   <div class="am-sep"></div>
   <div class="am-item" onclick="E.addObj('light-point')">◉ Luz Ponto</div>
   <div class="am-item" onclick="E.addObj('light-dir')">☀ Luz Direcional</div>
@@ -219,7 +222,9 @@
             <div class="ins-lbl">Tipo</div>
             <select class="ins-sel" id="ct-type" onchange="E.changeCtrlType(this.value)">
               <option value="humanoid">Humanoid</option>
-              <option value="vehicle">Vehicle</option>
+              <option value="vehicle">Veículo (carro)</option>
+              <option value="helicopter">Helicóptero</option>
+              <option value="aircraft">Avião</option>
             </select>
           </div>
           <div class="ins-2col" style="margin-top:4px">
