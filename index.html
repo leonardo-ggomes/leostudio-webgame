@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>EngineLeo</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+    "three/examples/jsm/loaders/GLTFLoader.js": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js"
+  }
+}
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="logo">Engine<span>Leo</span> <span class="logo-ver">v1</span></div>
+  <div class="tb-sep"></div>
+  <button class="tb-btn active" id="btn-move"  onclick="E.setGMode('translate')" title="W">⬡ Mover</button>
+  <button class="tb-btn"        id="btn-rot"   onclick="E.setGMode('rotate')"    title="E">↻ Rotar</button>
+  <button class="tb-btn"        id="btn-scl"   onclick="E.setGMode('scale')"     title="R">⤢ Escalar</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-space" onclick="E.toggleSpace()">Global</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-add" onclick="E.toggleAddMenu(event)">＋ Add</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn play"    id="btn-play" onclick="E.togglePlay()">▶ Play</button>
+  <button class="tb-btn pv-mode" id="btn-pv"   onclick="E.togglePreview()">◎ Preview</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn"     onclick="E.exportScene()"                            title="Ctrl+S">⬇ Export</button>
+  <button class="tb-btn"     onclick="document.getElementById('imp-json').click()">⬆ Import</button>
+  <button class="tb-btn amb" onclick="document.getElementById('imp-gltf').click()">⬆ GLTF</button>
+  <input type="file" id="imp-json" accept=".json" style="display:none" onchange="E.importScene(event)">
+  <input type="file" id="imp-gltf" accept=".gltf,.glb" style="display:none" onchange="E.importGLTF(event)">
+  <div class="tb-spacer"></div>
+  <span class="tb-status" id="status-txt">Iniciando...</span>
+</div>
+
+<div id="add-menu">
+  <div class="am-item" onclick="E.addObj('cube')">◻ Cubo</div>
+  <div class="am-item" onclick="E.addObj('sphere')">◯ Esfera</div>
+  <div class="am-item" onclick="E.addObj('cylinder')">⬬ Cilindro</div>
+  <div class="am-item" onclick="E.addObj('plane')">▭ Plano</div>
+  <div class="am-sep"></div>
+  <div class="am-item" onclick="E.addObj('humanoid')">⬤ Humanoid</div>
+  <div class="am-item" onclick="E.addObj('vehicle')">🚗 Veículo</div>
+  <div class="am-sep"></div>
+  <div class="am-item" onclick="E.addObj('light-point')">◉ Luz Ponto</div>
+  <div class="am-item" onclick="E.addObj('light-dir')">☀ Luz Direcional</div>
+  <div class="am-sep"></div>
+  <div class="am-item" onclick="E.addObj('empty')">⊕ Empty</div>
+  <div class="am-item" onclick="E.addObj('camera')">◎ Camera Node</div>
+</div>
+
+<div id="main">
+  <!-- LEFT: HIERARCHY -->
+  <div id="panel-left">
+    <div class="panel-hdr">
+      <span class="panel-title">Hierarquia</span>
+      <button class="panel-btn" onclick="E.toggleAddMenu(event)">+</button>
+    </div>
+    <div id="hier-list"></div>
+  </div>
+  <div class="resizer" id="res-l"></div>
+
+  <!-- VIEWPORT -->
+  <div id="vp-wrap">
+    <canvas id="vp"></canvas>
+    <canvas id="pv-canvas"></canvas>
+    <div id="nav-gizmo"><canvas id="nav-cvs" width="76" height="76"></canvas></div>
+    <div id="xform-hud"></div>
+    <div id="play-badge">▶ SIMULANDO</div>
+    <div id="pv-badge">◎ PREVIEW — RMB câmera · Esc sair</div>
+    <div id="vp-info">
+      <div id="info-fps">FPS: —</div>
+      <div id="info-tri">Tri: —</div>
+      <div id="info-obj">Obj: 0</div>
+    </div>
+    <div id="snap-bar">
+      <button class="snap-btn" id="snap-grid"  onclick="E.toggleSnap('grid')">Grid 1m</button>
+      <button class="snap-btn" id="snap-angle" onclick="E.toggleSnap('angle')">15°</button>
+    </div>
+  </div>
+
+  <div class="resizer" id="res-r"></div>
+
+  <!-- RIGHT: INSPECTOR -->
+  <div id="panel-right">
+    <div id="ins-tabs">
+      <div class="ins-tab active" onclick="I.switchTab('xform')">Xform</div>
+      <div class="ins-tab"        onclick="I.switchTab('physics')">Física</div>
+      <div class="ins-tab"        onclick="I.switchTab('ctrl')">Ctrl</div>
+      <div class="ins-tab"        onclick="I.switchTab('anim')">Anim</div>
+      <div class="ins-tab"        onclick="I.switchTab('scripts')">Scripts</div>
+    </div>
+
+    <!-- ── TRANSFORM ── -->
+    <div class="tab-panel active" id="tab-xform">
+      <div class="no-sel" id="nsel-xf"><div class="no-sel-txt">Nenhum objeto<br>selecionado</div></div>
+      <div id="xf-fields" style="display:none">
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Posição</div>
+          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
+            <input class="ins-f fx" type="number" id="px" step="0.1" oninput="I.applyXf()">
+            <input class="ins-f fy" type="number" id="py" step="0.1" oninput="I.applyXf()">
+            <input class="ins-f fz" type="number" id="pz" step="0.1" oninput="I.applyXf()">
+          </div></div></div>
+        </div>
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Rotação (°)</div>
+          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
+            <input class="ins-f fx" type="number" id="rx" step="1" oninput="I.applyXf()">
+            <input class="ins-f fy" type="number" id="ry" step="1" oninput="I.applyXf()">
+            <input class="ins-f fz" type="number" id="rz" step="1" oninput="I.applyXf()">
+          </div></div></div>
+        </div>
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Escala</div>
+          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
+            <input class="ins-f fx" type="number" id="sx" step="0.1" oninput="I.applyXf()">
+            <input class="ins-f fy" type="number" id="sy" step="0.1" oninput="I.applyXf()">
+            <input class="ins-f fz" type="number" id="sz" step="0.1" oninput="I.applyXf()">
+          </div></div></div>
+        </div>
+        <div class="ins-sec" style="padding:6px 10px">
+          <div class="ins-row" style="margin-bottom:4px">
+            <div class="ins-lbl">Nome</div>
+            <input class="ins-f full" type="text" id="obj-name" oninput="I.applyName()">
+          </div>
+          <div class="ins-row">
+            <div class="ins-lbl">Layer</div>
+            <select class="ins-sel" id="obj-layer">
+              <option value="default">Default</option>
+              <option value="player">Player</option>
+              <option value="npc">NPC</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="static">Static</option>
+            </select>
+          </div>
+          <div class="ins-row" style="margin-top:4px">
+            <input class="ins-chk" type="checkbox" id="obj-vis" onchange="I.applyVis()">
+            <label class="ins-chk-lbl" for="obj-vis">Visível</label>
+          </div>
+        </div>
+        <div style="padding:6px 10px">
+          <div class="ins-2col">
+            <button class="ins-btn red" onclick="E.deleteSel()">✕ Deletar</button>
+            <button class="ins-btn"     onclick="E.dupSel()">⎘ Duplicar</button>
+          </div>
+          <div class="ins-2col" style="margin-top:3px">
+            <button class="ins-btn" onclick="E.focusSel()">◎ Focar</button>
+            <button class="ins-btn" onclick="E.resetXf()">↺ Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHYSICS ── -->
+    <div class="tab-panel" id="tab-physics">
+      <div class="no-sel" id="nsel-phy"><div class="no-sel-txt">Nenhum objeto<br>selecionado</div></div>
+      <div id="phy-fields" style="display:none">
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Corpo Rígido</div>
+          <div class="ins-body">
+            <div class="ins-row" style="margin-bottom:6px">
+              <input class="ins-chk" type="checkbox" id="ph-on" onchange="I.applyPhy()">
+              <label class="ins-chk-lbl" for="ph-on">Habilitar RigidBody</label>
+            </div>
+            <div class="ins-row">
+              <div class="ins-lbl">Tipo</div>
+              <select class="ins-sel" id="ph-type" onchange="I.applyPhy()">
+                <option value="dynamic">Dinâmico</option>
+                <option value="static">Estático</option>
+                <option value="kinematic">Cinemático</option>
+              </select>
+            </div>
+            <div class="ins-row"><div class="ins-lbl">Massa</div>    <input class="ins-f" type="number" id="ph-mass" value="1"   step="0.1"  min="0.01" oninput="I.applyPhy()"></div>
+            <div class="ins-row"><div class="ins-lbl">Fricção</div>  <input class="ins-f" type="number" id="ph-fric" value="0.5" step="0.05" min="0" max="1" oninput="I.applyPhy()"></div>
+            <div class="ins-row"><div class="ins-lbl">Restitui.</div><input class="ins-f" type="number" id="ph-rest" value="0.3" step="0.05" min="0" max="1" oninput="I.applyPhy()"></div>
+            <div class="ins-row">
+              <input class="ins-chk" type="checkbox" id="ph-grav" checked onchange="I.applyPhy()">
+              <label class="ins-chk-lbl" for="ph-grav">Gravidade</label>
+            </div>
+          </div>
+        </div>
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Collider</div>
+          <div class="ins-body">
+            <div class="ins-row">
+              <div class="ins-lbl">Forma</div>
+              <select class="ins-sel" id="ph-col" onchange="I.applyPhy()">
+                <option value="box">Box</option><option value="sphere">Sphere</option>
+                <option value="capsule">Capsule</option><option value="mesh">Mesh</option>
+              </select>
+            </div>
+            <div class="ins-row"><input class="ins-chk" type="checkbox" id="ph-trig"><label class="ins-chk-lbl" for="ph-trig">É Trigger</label></div>
+            <div class="ins-row"><input class="ins-chk" type="checkbox" id="ph-show" onchange="I.toggleColViz()"><label class="ins-chk-lbl" for="ph-show">Mostrar collider</label></div>
+          </div>
+        </div>
+        <div style="padding:6px 10px">
+          <button class="ins-btn grn" onclick="E.applyImpulse()">↑ Aplicar Impulso</button>
+          <div class="ins-row" style="margin-top:4px">
+            <div class="ins-lbl">Força Y</div>
+            <input class="ins-f" type="number" id="imp-y" value="5" step="0.5">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CONTROLLER ── -->
+    <div class="tab-panel" id="tab-ctrl">
+      <div class="no-sel" id="nsel-ctrl"><div class="no-sel-txt">Selecione um Humanoid<br>ou Veículo</div></div>
+      <div id="ctrl-fields" style="display:none; flex:1; overflow-y:auto; flex-direction:column">
+        <div class="sep-lbl">Controller</div>
+        <div style="padding:0 10px 6px">
+          <div class="ins-row">
+            <div class="ins-lbl">Tipo</div>
+            <select class="ins-sel" id="ct-type" onchange="E.changeCtrlType(this.value)">
+              <option value="humanoid">Humanoid</option>
+              <option value="vehicle">Vehicle</option>
+            </select>
+          </div>
+          <div class="ins-2col" style="margin-top:4px">
+            <button class="ins-btn pri" onclick="E.possessSelected()">▶ Possessar</button>
+            <button class="ins-btn"     onclick="E.loadCustomGLB()">⬆ Modelo GLB</button>
+          </div>
+        </div>
+
+        <div class="sep-lbl">Stats — Humanoid</div>
+        <div style="padding:0 10px" id="ct-stats-humanoid">
+          <div class="stat-row"><span class="stat-lbl">Velocidade</span> <input class="stat-f" type="number" id="ct-speed"  step="0.5" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Corrida</span>    <input class="stat-f" type="number" id="ct-sprint" step="0.5" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Pulo</span>       <input class="stat-f" type="number" id="ct-jump"   step="0.5" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Aceleração</span> <input class="stat-f" type="number" id="ct-accel"  step="1"   oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Rot. Spd</span>   <input class="stat-f" type="number" id="ct-rotSpd" step="0.5" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Câm. Y</span>     <input class="stat-f" type="number" id="ct-camY"   step="0.1" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Câm. D</span>     <input class="stat-f" type="number" id="ct-camD"   step="0.5" oninput="I.applyControllable()"></div>
+        </div>
+
+        <div style="padding:0 10px;display:none" id="ct-stats-vehicle">
+          <div class="sep-lbl" style="padding:8px 0 3px">Stats — Vehicle</div>
+          <div class="stat-row"><span class="stat-lbl">Vel. Máx.</span>  <input class="stat-f" type="number" id="ct-topSpeed"    step="1"    oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Aceleração</span> <input class="stat-f" type="number" id="ct-accelV"       step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Frenagem</span>   <input class="stat-f" type="number" id="ct-brake"        step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Ré</span>         <input class="stat-f" type="number" id="ct-reverseSpeed" step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Curva</span>      <input class="stat-f" type="number" id="ct-turnRate"     step="0.1"  oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Steer Max</span>  <input class="stat-f" type="number" id="ct-steerMax"     step="0.05" oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Câm. Y</span>     <input class="stat-f" type="number" id="ct-camYv"        step="0.1"  oninput="I.applyControllable()"></div>
+          <div class="stat-row"><span class="stat-lbl">Câm. D</span>     <input class="stat-f" type="number" id="ct-camDv"        step="0.5"  oninput="I.applyControllable()"></div>
+        </div>
+
+        <div class="sep-lbl">Keybindings <span style="color:var(--text3);font-weight:400;font-size:9px">(clique para reatribuir)</span></div>
+        <div id="kb-list" style="padding:0 10px 4px"></div>
+        <div style="padding:0 10px 10px;flex-shrink:0">
+          <button class="ins-btn" onclick="E.resetKB()">↺ Resetar teclas padrão</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ANIMATIONS ── -->
+    <div class="tab-panel" id="tab-anim">
+      <div class="no-sel" id="nsel-anim"><div class="no-sel-txt">Objeto sem animações<br>(GLB com clips)</div></div>
+      <div id="anim-fields" style="display:none">
+        <div class="sep-lbl">Clips do GLB</div>
+        <div id="anim-clip-list" style="padding:0 10px 4px;max-height:130px;overflow-y:auto"></div>
+        <div class="sep-lbl">Mapeamento de Estados</div>
+        <div id="anim-state-map" style="padding:0 10px 6px;max-height:200px;overflow-y:auto"></div>
+        <div class="sep-lbl">Configurações</div>
+        <div style="padding:0 10px 10px">
+          <div class="stat-row">
+            <span class="stat-lbl">Crossfade</span>
+            <input class="stat-f" type="number" id="anim-fade" value="0.25" step="0.05" min="0" max="2" oninput="AP.applyFade()">
+          </div>
+          <button class="ins-btn" style="margin-top:4px" onclick="AP.refresh()">↺ Re-auto-mapear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCRIPTS ── -->
+    <div class="tab-panel" id="tab-scripts">
+      <div class="no-sel" id="nsel-sc"><div class="no-sel-txt">Nenhum objeto<br>selecionado</div></div>
+      <div id="sc-fields" style="display:none">
+        <div id="sc-list" style="padding:6px 10px"></div>
+        <div style="padding:0 10px 8px">
+          <button class="ins-btn pri" onclick="E.addScript()">＋ Novo Script</button>
+          <div class="ins-note" style="margin-top:6px">
+            <code style="color:var(--accent)">this.entity</code> · <code style="color:var(--accent)">this.entity.mesh</code><br>
+            <code style="color:var(--accent)">this.entity.physics</code> · <code style="color:var(--accent)">this.entity.controllable</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /panel-right -->
+</div><!-- /main -->
+
+<!-- SCRIPT EDITOR OVERLAY -->
+<div id="sc-overlay">
+  <div id="sc-bar">
+    <span id="sc-name">script.js</span>
+    <span id="sc-status">● salvo</span>
+    <button class="sc-bar-btn" id="sc-apply" onclick="E.applyScript()">✓ Aplicar</button>
+    <button class="sc-bar-btn" id="sc-close"  onclick="E.closeSCEditor()">✕ Fechar</button>
+  </div>
+  <div id="monaco-wrap"></div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div id="modal-actions"></div>
+  </div>
+</div>
+
+<!-- ES Module bootstrap -->
+<script type="module">
+  import * as Main      from './src/main.js';
+  import * as Inspector from './src/inspector.js';
+  import * as AnimPanel from './src/animationPanel.js';
+
+  window.E  = Main;
+  window.I  = Inspector;
+  window.AP = AnimPanel;
+
+  window.togVis       = Main.togVis;
+  window.startListen  = Main.startListen;
+  window.openSCEditor = Main.openSCEditor;
+  window.rmScript     = Main.rmScript;
+  window.animPreview  = AnimPanel.preview;
+  window.animMapState = AnimPanel.mapState;
+
+  window._onEntAnimLoaded = () => { window.I?.refresh(); };
+</script>
+</body>
+</html>
