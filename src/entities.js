@@ -139,6 +139,137 @@ export function createEnt(type, name) {
     });
   }
 
+  // ---- Motorcycle ----
+  if (type === 'motorcycle') {
+    const grp = new THREE.Group();
+    const bodyMat = mkMat(0xcc2211);
+    const darkMat = mkMat(0x111111);
+    // Frame
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(.25, .55, 1.6), bodyMat);
+    frame.position.y = .5;
+    // Tank
+    const tank = new THREE.Mesh(new THREE.BoxGeometry(.28, .28, .7), bodyMat);
+    tank.position.set(0, .85, .15);
+    // Seat
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(.22, .1, .6), mkMat(0x222222));
+    seat.position.set(0, .92, -.22);
+    // Handlebars
+    const hbar = new THREE.Mesh(new THREE.BoxGeometry(.7, .06, .12), darkMat);
+    hbar.position.set(0, 1.02, .6); hbar.userData.handlebar = true;
+    // Wheels
+    const wGeo = new THREE.TorusGeometry(.32, .08, 8, 18);
+    const wFront = new THREE.Mesh(wGeo, darkMat);
+    const wRear  = new THREE.Mesh(wGeo, darkMat);
+    wFront.rotation.y = Math.PI/2; wFront.position.set(0, .32, .72);
+    wRear.rotation.y  = Math.PI/2; wRear.position.set(0, .32, -.72);
+    wFront.userData.wheel = true; wRear.userData.wheel = true;
+    // Exhaust
+    const exh = new THREE.Mesh(new THREE.CylinderGeometry(.04, .06, .7, 8), mkMat(0x888888));
+    exh.rotation.z = Math.PI/2; exh.position.set(.22, .3, -.6);
+    grp.add(frame, tank, seat, hbar, wFront, wRear, exh);
+    [frame, tank, seat, hbar, exh].forEach(m => m.castShadow = true);
+    S.scene.add(grp);
+    return mkEnt(type, name || 'Moto', grp, {
+      layer: 'vehicle',
+      physics: mkPhysics({ enabled: false }),
+      controllable: makeControllable('motorcycle'),
+    });
+  }
+
+  // ---- Horse ----
+  if (type === 'horse') {
+    const grp = new THREE.Group();
+    const bodyMat  = mkMat(0x8b5e3c);
+    const darkMat  = mkMat(0x5a3a1a);
+    const hairMat  = mkMat(0x3d2200);
+    // Body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(.6, .65, 1.5), bodyMat);
+    body.position.y = 1.0;
+    // Neck
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(.3, .55, .35), bodyMat);
+    neck.position.set(0, 1.38, .65); neck.rotation.x = -.35;
+    // Head
+    const head = new THREE.Mesh(new THREE.BoxGeometry(.22, .3, .52), bodyMat);
+    head.position.set(0, 1.65, .92);
+    // Ears
+    const earGeo = new THREE.ConeGeometry(.05, .14, 4);
+    const earL = new THREE.Mesh(earGeo, bodyMat); earL.position.set(-.08, 1.82, .86);
+    const earR = new THREE.Mesh(earGeo, bodyMat); earR.position.set(.08, 1.82, .86);
+    // Mane
+    const mane = new THREE.Mesh(new THREE.BoxGeometry(.1, .35, .5), hairMat);
+    mane.position.set(0, 1.52, .58);
+    // Tail
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(.1, .45, .15), hairMat);
+    tail.position.set(0, .95, -.85);
+    // Legs (tagged for animation)
+    const legGeo = new THREE.BoxGeometry(.14, .55, .16);
+    const legPositions = [
+      [-.22, .42, .45], [.22, .42, .45],   // front legs
+      [-.22, .42, -.45], [.22, .42, -.45], // rear legs
+    ];
+    legPositions.forEach((p, i) => {
+      const leg = new THREE.Mesh(legGeo, darkMat);
+      leg.position.set(...p); leg.userData.leg = i;
+      grp.add(leg);
+    });
+    // Hooves
+    const hoofGeo = new THREE.BoxGeometry(.14, .12, .16);
+    legPositions.forEach(p => {
+      const hoof = new THREE.Mesh(hoofGeo, darkMat);
+      hoof.position.set(p[0], p[1] - .3, p[2]);
+      grp.add(hoof);
+    });
+    [body, neck, head, earL, earR, mane, tail].forEach(m => { m.castShadow = true; grp.add(m); });
+    S.scene.add(grp);
+    return mkEnt(type, name || 'Cavalo', grp, {
+      layer: 'npc',
+      physics: mkPhysics({ enabled: false }),
+      controllable: makeControllable('horse'),
+    });
+  }
+
+  // ---- Bicycle ----
+  if (type === 'bicycle') {
+    const grp = new THREE.Group();
+    const frameMat = mkMat(0x2266cc);
+    const darkMat  = mkMat(0x111111);
+    // Wheel rims
+    const wGeo = new THREE.TorusGeometry(.28, .05, 6, 16);
+    const wFront = new THREE.Mesh(wGeo, darkMat);
+    const wRear  = new THREE.Mesh(wGeo, darkMat);
+    wFront.rotation.y = Math.PI/2; wFront.position.set(0, .28, .55);
+    wRear.rotation.y  = Math.PI/2; wRear.position.set(0, .28, -.55);
+    wFront.userData.wheel = true; wRear.userData.wheel = true;
+    // Frame tubes (simplified as thin boxes)
+    const topTube = new THREE.Mesh(new THREE.BoxGeometry(.06, .06, .8), frameMat);
+    topTube.position.set(0, .65, 0); topTube.rotation.x = -.12;
+    const downTube = new THREE.Mesh(new THREE.BoxGeometry(.06, .06, .75), frameMat);
+    downTube.position.set(0, .45, .25); downTube.rotation.x = .45;
+    const seatTube = new THREE.Mesh(new THREE.BoxGeometry(.06, .45, .06), frameMat);
+    seatTube.position.set(0, .42, -.18);
+    // Seat
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(.18, .05, .28), mkMat(0x222222));
+    seat.position.set(0, .72, -.22);
+    // Handlebar
+    const hbar = new THREE.Mesh(new THREE.BoxGeometry(.5, .05, .1), darkMat);
+    hbar.position.set(0, .82, .5); hbar.userData.handlebar = true;
+    // Crank / pedals
+    const crank = new THREE.Mesh(new THREE.BoxGeometry(.04, .22, .04), darkMat);
+    crank.position.set(0, .3, -.18); crank.userData.pedalLeft = true;
+    const pedalL = new THREE.Mesh(new THREE.BoxGeometry(.18, .04, .06), darkMat);
+    pedalL.position.set(-.12, .18, -.18); pedalL.userData.pedalLeft = true;
+    const pedalR = new THREE.Mesh(new THREE.BoxGeometry(.18, .04, .06), darkMat);
+    pedalR.position.set(.12, .38, -.18); pedalR.userData.pedalRight = true;
+    grp.add(wFront, wRear, topTube, downTube, seatTube, seat, hbar, crank, pedalL, pedalR);
+    [topTube, downTube, seatTube].forEach(m => m.castShadow = true);
+    S.scene.add(grp);
+    return mkEnt(type, name || 'Bicicleta', grp, {
+      layer: 'vehicle',
+      physics: mkPhysics({ enabled: false }),
+      controllable: makeControllable('bicycle'),
+    });
+  }
+
   // ---- Lights ----
   if (type === 'light-point') {
     const pl = new THREE.PointLight(0xffffff, 1.2, 12);
@@ -179,34 +310,64 @@ export function createEnt(type, name) {
   return mkEnt(type, name || (type[0].toUpperCase()+type.slice(1)+' '+S.nextId), mesh);
 }
 
-/** Load (or reload) a GLB into any controllable entity */
-export function loadControllableGLB(ent, url) { return _loadHumanoidGLB(ent, url); }
+/**
+ * Load (or reload) a GLB model into any controllable entity.
+ * Clears the existing mesh children and replaces with GLB scene.
+ * Works for humanoid, vehicle, motorcycle, horse, bicycle, helicopter, aircraft.
+ */
+export function loadControllableGLB(ent, url) {
+  return _loadEntGLB(ent, url);
+}
 
-/** Load (or reload) a GLB into any controllable entity */
-export async function _loadHumanoidGLB(ent, url) {
+// Keep old export name for backward compat
+export function _loadHumanoidGLB(ent, url) { return _loadEntGLB(ent, url); }
+
+async function _loadEntGLB(ent, url) {
   try {
     const { scene: model, animMgr } = await loadGLB(url);
-    // Remove previous model children (if reloading)
-    while (ent.mesh.children.length) ent.mesh.remove(ent.mesh.children[0]);
+
+    // Clear ALL previous children (placeholder geometry)
+    const toRemove = [...ent.mesh.children];
+    toRemove.forEach(c => ent.mesh.remove(c));
+
+    // For non-Group mesh (lights, cameras) just return
+    if (!ent.mesh.isGroup) { console.warn('[EngineLeo] Cannot replace non-Group mesh'); return; }
+
+    // Auto-scale based on controllable type
+    const box3 = new THREE.Box3().setFromObject(model);
+    const size = box3.getSize(new THREE.Vector3());
+    const type = ent.controllable?.type || ent.type;
+    const TARGET_HEIGHTS = {
+      humanoid: 1.0, horse: 1.6,
+      vehicle: 1.5, motorcycle: 1.1, bicycle: 1.0,
+      helicopter: 2.5, aircraft: 2.0,
+    };
+    const targetH = TARGET_HEIGHTS[type] || 1.8;
+    const h = size.y;
+    if (h > 0.01) model.scale.setScalar(targetH / h);
+    model.position.y = 0; // reset vertical offset
+
     ent.mesh.add(model);
     ent.animMgr = animMgr;
-    // Reset currentState so setState('idle') always fires, even if called before
+
     if (animMgr) {
       animMgr.currentState = null;
+      animMgr._locked = false;
       animMgr.setState('idle');
     }
-    console.log(`[EngineLeo] GLB loaded: ${url} — ${animMgr?.clips.length || 0} clips`);
-    // Notify inspector to refresh anim tab if this entity is selected
+
+    console.log(`[EngineLeo] GLB carregado: ${url} — ${animMgr?.clips.length || 0} clips`);
     if (window._onEntAnimLoaded) window._onEntAnimLoaded(ent);
-  } catch(e) {
-    console.warn('[DE] GLB load failed:', url, e);
-    // Fallback: capsule placeholder
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, 1.2, 16),
-      new THREE.MeshStandardMaterial({ color: 0x3a5fcd }));
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xf4c08a }));
-    body.position.y = .6; head.position.y = 1.42;
-    ent.mesh.add(body, head);
+  } catch(err) {
+    console.warn('[EngineLeo] GLB falhou:', url, err);
+    // Fallback placeholder (only if mesh is empty)
+    if (ent.mesh.children.length === 0) {
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 2),
+        new THREE.MeshStandardMaterial({ color: 0x5b8cff, wireframe: true })
+      );
+      ent.mesh.add(body);
+    }
   }
 }
 

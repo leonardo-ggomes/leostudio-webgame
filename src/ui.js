@@ -1,7 +1,7 @@
 // ================================================================
 // ui.js — Modal, Toast, Orbit controls, Panel resizers
 // ================================================================
-import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+import * as THREE from 'three';
 import * as S from './state.js';
 
 // ----------------------------------------------------------------
@@ -99,13 +99,30 @@ export function makeOrbit(cam) {
 // PANEL RESIZERS
 // ----------------------------------------------------------------
 export function makeResizer(resizerId, leftId, rightId) {
+  const rEl = document.getElementById(resizerId);
   let drag = false;
-  document.getElementById(resizerId).addEventListener('mousedown', () => { drag=true; });
-  window.addEventListener('mouseup',    () => { drag=false; });
-  window.addEventListener('mousemove',  e  => {
+
+  // Read CSS var limits
+  const cs  = getComputedStyle(document.documentElement);
+  const lMin = parseInt(cs.getPropertyValue('--left-min'))  || 160;
+  const lMax = parseInt(cs.getPropertyValue('--left-max'))  || 380;
+  const rMin = parseInt(cs.getPropertyValue('--right-min')) || 200;
+  const rMax = parseInt(cs.getPropertyValue('--right-max')) || 480;
+
+  rEl.addEventListener('mousedown', e => { drag=true; rEl.classList.add('dragging'); e.preventDefault(); });
+  window.addEventListener('mouseup', () => { drag=false; rEl.classList.remove('dragging'); });
+  window.addEventListener('mousemove', e => {
     if (!drag) return;
-    if (leftId)  { const el=document.getElementById(leftId);  el.style.width=Math.max(150,Math.min(400, e.clientX-el.getBoundingClientRect().left))+'px'; }
-    if (rightId) { const el=document.getElementById(rightId); el.style.width=Math.max(200,Math.min(500, document.body.clientWidth-e.clientX))+'px'; }
+    if (leftId) {
+      const el = document.getElementById(leftId);
+      const w  = Math.max(lMin, Math.min(lMax, e.clientX - el.getBoundingClientRect().left));
+      el.style.width = w + 'px';
+    }
+    if (rightId) {
+      const el = document.getElementById(rightId);
+      const w  = Math.max(rMin, Math.min(rMax, document.body.clientWidth - e.clientX));
+      el.style.width = w + 'px';
+    }
     window.dispatchEvent(new Event('engineresize'));
   });
 }

@@ -9,10 +9,20 @@ const $ = id => document.getElementById(id);
 // ----------------------------------------------------------------
 // TAB SWITCHING
 // ----------------------------------------------------------------
-const TAB_NAMES = ['xform','physics','ctrl','anim','scripts'];
+const TAB_NAMES = ['xform','physics','ctrl','anim','effects','camera','scripts'];
+const TAB_META = {'xform': ('⬡', 'Transform'), 'physics': ('⚙', 'Física / Collider'), 'ctrl': ('🎮', 'Controller'), 'anim': ('▶', 'Animações'), 'effects': ('✨', 'Efeitos Especiais'), 'camera': ('◎', 'Câmera'), 'scripts': ('{}', 'Scripts')};
+
 export function switchTab(name) {
   document.querySelectorAll('.ins-tab').forEach((t,i) => t.classList.toggle('active', TAB_NAMES[i]===name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id==='tab-'+name));
+  // Update content header
+  const meta = TAB_META[name];
+  if (meta) {
+    const iconEl = document.getElementById('ins-content-hdr')?.querySelector('.hdr-icon');
+    const txtEl  = document.getElementById('ins-content-hdr-txt');
+    if (iconEl) iconEl.textContent = meta[0];
+    if (txtEl)  txtEl.textContent  = meta[1];
+  }
 }
 export function toggleSec(hdr)     { hdr.closest('.ins-sec').classList.toggle('coll'); }
 export function toggleCharSec(hdr) { const b=hdr.nextElementSibling; b.style.display=b.style.display==='none'?'':'none'; }
@@ -29,7 +39,7 @@ export function refresh() {
   $('nsel-ctrl').style.display  = hasChar ? 'none' : 'flex';
   $('ctrl-fields').style.display = hasChar ? 'block' : 'none';
   $('nsel-ctrl').querySelector('.no-sel-txt').textContent =
-    has ? 'Sem componente Controllable\n(Add > Humanoid ou Veículo)' : 'Nenhum objeto\nselecionado';
+    has ? 'Sem componente Controller\n(Add > Humanoid, Veículo, Moto, Cavalo...)' : 'Nenhum objeto\nselecionado';
 
   if (!has) return;
   refreshXf();
@@ -81,35 +91,154 @@ export function applyPhy() {
   ph.restitution=+$('ph-rest').value; ph.gravity=$('ph-grav').checked;
   ph.collider=$('ph-col').value;
 }
-export function toggleColViz(outMesh) {
-  if (!outMesh||!S.selEnt) return;
-  const mat = $('ph-show').checked
-    ? new THREE.MeshBasicMaterial({color:0x3ecf8e,side:THREE.BackSide,transparent:true,opacity:.18,wireframe:true})
-    : new THREE.MeshBasicMaterial({color:0x5b8cff,side:THREE.BackSide,transparent:true,opacity:.28});
-  outMesh.material = mat;
+// ================================================================
+// Collider debug visualizer
+// Strategy: attach helper as CHILD of ent.mesh so it follows for free.
+// Size is computed from the mesh's own bounding box in LOCAL space,
+// so it stays tight regardless of position/rotation/scale.
+// ================================================================
+const _colHelpers = new Map(); // ent.id → { mesh, ent }
+const _COL_MAT = new THREE.MeshBasicMaterial({
+  color: 0x3ecf8e, transparent: true, opacity: 0.22,
+  wireframe: true, depthTest: false,
+});
+
+function _buildCapsuleGeo(rx, h) {
+  // A proper capsule = cylinder body + two hemisphere caps merged via BufferGeometry
+  // We approximate with a merged geometry for performance
+  const segs = 12, rings = 6;
+  const positions = [], indices = [];
+  let vi = 0;
+
+  // Helper to push vertex
+  const pv = (x, y, z) => { positions.push(x, y, z); return vi++; };
+
+  // Bottom hemisphere (y from -rx to 0, offset -h/2)
+  for (let r = 0; r <= rings; r++) {
+    const phi = (Math.PI / 2) * (r / rings); // 0 → π/2
+    const y   = -Math.cos(phi) * rx;
+    const rad = Math.sin(phi) * rx;
+    for (let s = 0; s <= segs; s++) {
+      const theta = (2 * Math.PI * s) / segs;
+      pv(Math.cos(theta) * rad, y - h / 2, Math.sin(theta) * rad);
+    }
+  }
+
+  // Cylinder body (y from -h/2 to h/2)
+  for (let r = 0; r <= 1; r++) {
+    const y = r === 0 ? -h / 2 : h / 2;
+    for (let s = 0; s <= segs; s++) {
+      const theta = (2 * Math.PI * s) / segs;
+      pv(Math.cos(theta) * rx, y, Math.sin(theta) * rx);
+    }
+  }
+
+  // Top hemisphere (y from 0 to rx, offset h/2)
+  for (let r = 0; r <= rings; r++) {
+    const phi = (Math.PI / 2) * (r / rings);
+    const y   = Math.sin(phi) * rx;
+    const rad = Math.cos(phi) * rx;
+    for (let s = 0; s <= segs; s++) {
+      const theta = (2 * Math.PI * s) / segs;
+      pv(Math.cos(theta) * rad, y + h / 2, Math.sin(theta) * rad);
+    }
+  }
+
+  // Build wireframe indices (just longitudinal + latitudinal lines)
+  const totalRows = (rings + 1) + 2 + (rings + 1);
+  const cols = segs + 1;
+  for (let row = 0; row < totalRows - 1; row++) {
+    for (let col = 0; col < segs; col++) {
+      const a = row * cols + col;
+      const b = row * cols + col + 1;
+      const c = (row + 1) * cols + col;
+      indices.push(a, b, b, c, c, a);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
+export function toggleColViz() {
+  const ent = S.selEnt;
+  if (!ent?.mesh) return;
+  const show = $('ph-show').checked;
+
+  // Remove existing helper (detach from mesh)
+  const prev = _colHelpers.get(ent.id);
+  if (prev) { ent.mesh.remove(prev); _colHelpers.delete(ent.id); }
+  if (!show) return;
+
+  const col = ent.physics?.collider || 'box';
+
+  // Compute bbox in LOCAL space (unscaled) so geometry matches visual exactly
+  // We temporarily reset scale to get local-space bounds, then restore
+  const savedScale = ent.mesh.scale.clone();
+  ent.mesh.scale.set(1, 1, 1);
+  const localBox = new THREE.Box3().setFromObject(ent.mesh);
+  ent.mesh.scale.copy(savedScale);
+
+  const size   = new THREE.Vector3(); localBox.getSize(size);
+  const center = new THREE.Vector3(); localBox.getCenter(center);
+
+  // Adjust for scale
+  size.multiply(savedScale);
+  center.multiply(savedScale);
+
+  let geo;
+  if (col === 'sphere') {
+    const r = Math.max(size.x, size.y, size.z) * 0.5;
+    geo = new THREE.SphereGeometry(r, 14, 10);
+  } else if (col === 'capsule') {
+    const r = Math.max(size.x, size.z) * 0.5;
+    const h = Math.max(0.01, size.y - r * 2);
+    geo = _buildCapsuleGeo(r, h);
+  } else if (col === 'mesh') {
+    // Mesh collider: just re-use the bounding box for debug
+    geo = new THREE.BoxGeometry(size.x, size.y, size.z);
+  } else {
+    geo = new THREE.BoxGeometry(size.x, size.y, size.z);
+  }
+
+  const helper = new THREE.Mesh(geo, _COL_MAT.clone());
+  // Position relative to mesh (local space center offset from pivot)
+  helper.position.copy(center);
+  helper.userData._isColHelper = true;
+
+  // ATTACH AS CHILD — follows mesh automatically, zero per-frame cost
+  ent.mesh.add(helper);
+  _colHelpers.set(ent.id, helper);
+}
+
+/** No per-frame work needed — helpers are mesh children */
+export function updateColHelpers() {
+  // Only cleanup orphaned helpers (entity deleted while debug active)
+  _colHelpers.forEach((helper, id) => {
+    if (!S.entities.find(e => e.id === id)) {
+      helper.parent?.remove(helper);
+      _colHelpers.delete(id);
+    }
+  });
+}
+
+export function clearColHelpers() {
+  _colHelpers.forEach((helper, id) => {
+    const ent = S.entities.find(e => e.id === id);
+    if (ent) ent.mesh.remove(helper);
+    else helper.parent?.remove(helper);
+  });
+  _colHelpers.clear();
 }
 
 // ----------------------------------------------------------------
 // CHARACTER
 // ----------------------------------------------------------------
-export function refreshChar() {
-  if (!S.selEnt?.char) return;
-  const ch = S.selEnt.char;
-  $('ch-spd').value=ch.speed; $('ch-spr').value=ch.sprint; $('ch-jmp').value=ch.jump;
-  $('ch-acc').value=ch.accel; $('ch-rot').value=ch.rotSpd;
-  $('ch-camy').value=ch.camY; $('ch-camd').value=ch.camD;
-  ['aim','car','cov','rol','crc','int'].forEach(k => {
-    const el=$('ca-'+k); if (el) el.checked=ch.actions?.[k]||false;
-  });
-  buildKBUI(ch.keybinds);
-}
-export function applyChar() {
-  if (!S.selEnt?.char) return;
-  const ch = S.selEnt.char;
-  ch.speed=+$('ch-spd').value; ch.sprint=+$('ch-spr').value; ch.jump=+$('ch-jmp').value;
-  ch.accel=+$('ch-acc').value; ch.rotSpd=+$('ch-rot').value;
-  ch.camY=+$('ch-camy').value; ch.camD=+$('ch-camd').value;
-}
+// refreshChar / applyChar removed — legacy 'char' system replaced by 'controllable'
+export function refreshChar() {}
+export function applyChar()   {}
 
 // ----------------------------------------------------------------
 // KEYBINDS
@@ -125,24 +254,24 @@ export function buildKBUI(kb) {
   });
 }
 export function startListen(action) {
-  if (!S.selEnt?.char) return; listeningFor=action;
+  if (!S.selEnt?.controllable) return; listeningFor=action;
   const el=$('kbi-'+action); el.classList.add('listening'); el.value='...';
 }
 export function onKeyForRebind(e) {
-  if (!listeningFor || !S.selEnt?.char) return false;
+  if (!listeningFor || !S.selEnt?.controllable) return false;
   e.preventDefault(); e.stopPropagation();
   const lbl = e.key===' '?'Space':e.key.length===1?e.key.toUpperCase():e.key;
-  S.selEnt.char.keybinds[listeningFor].key   = e.code;
-  S.selEnt.char.keybinds[listeningFor].label = lbl;
+  S.selEnt.controllable.keybinds[listeningFor].key   = e.code;
+  S.selEnt.controllable.keybinds[listeningFor].label = lbl;
   const el = $('kbi-'+listeningFor);
   if (el) { el.value=lbl; el.classList.remove('listening'); }
   listeningFor = null;
   return true;
 }
 export function resetKB() {
-  if (!S.selEnt?.char) return;
-  S.selEnt.char.keybinds = JSON.parse(JSON.stringify(S.DEF_KB));
-  buildKBUI(S.selEnt.char.keybinds);
+  if (!S.selEnt?.controllable) return;
+  S.selEnt.controllable.keybinds = JSON.parse(JSON.stringify(S.DEF_KB));
+  buildKBUI(S.selEnt.controllable.keybinds);
 }
 export function isListening() { return !!listeningFor; }
 
@@ -179,14 +308,19 @@ export function refreshHier() {
 // ----------------------------------------------------------------
 export function refreshControllable() {
   const ent = S.selEnt;
-  const has = !!ent?.controllable;
-  const c = ent?.controllable;
-  if (!has) return;
+  const c   = ent?.controllable;
+  if (!c) return;
 
-  // Stats
-  const stats = c.stats;
-  Object.entries(stats).forEach(([k, v]) => {
-    const el = document.getElementById('ct-' + k);
+  // Set type dropdown
+  const typeEl = $('ct-type');
+  if (typeEl) typeEl.value = c.type;
+
+  // Show correct stats panel (calls back to main.js via window)
+  if (window._showCtrlStats) window._showCtrlStats(c.type);
+
+  // Populate stat fields — iterate stats keys
+  Object.entries(c.stats).forEach(([k, v]) => {
+    const el = $('ct-' + k);
     if (el) el.value = v;
   });
 
@@ -197,8 +331,14 @@ export function refreshControllable() {
 export function applyControllable() {
   const c = S.selEnt?.controllable;
   if (!c) return;
+  // Read only the keys that belong to this type's stats
   Object.keys(c.stats).forEach(k => {
-    const el = document.getElementById('ct-' + k);
-    if (el) c.stats[k] = parseFloat(el.value) || 0;
+    const el = $('ct-' + k);
+    if (el && el.value !== '') c.stats[k] = parseFloat(el.value) || 0;
   });
+}
+
+export function applyLayer() {
+  if (!S.selEnt) return;
+  S.selEnt.layer = $('obj-layer').value;
 }

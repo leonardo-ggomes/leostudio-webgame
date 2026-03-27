@@ -1,3 +1,4 @@
+import * as Combat from './combat.js';
 // ================================================================
 // character.js — HUD overlay for preview mode
 // ================================================================
@@ -10,7 +11,10 @@ const TYPE_LABELS = {
   humanoid:   { icon:'⬤', color:'#3ecf8e' },
   vehicle:    { icon:'🚗', color:'#ffb347' },
   helicopter: { icon:'🚁', color:'#9b72ff' },
-  aircraft:   { icon:'✈', color:'#5bc9c9'  },
+  aircraft:   { icon:'✈',  color:'#5bc9c9'  },
+  motorcycle: { icon:'🏍', color:'#ff5c5c'  },
+  horse:      { icon:'🐴', color:'#c8883a'  },
+  bicycle:    { icon:'🚲', color:'#3ecf8e'  },
 };
 
 export function drawHUD() {
@@ -31,14 +35,20 @@ export function drawHUD() {
   const thrott = ctrl?.getThrottle?.();    // aircraft only
   const speed  = ctrl?.getSpeed?.();       // vehicle/aircraft
 
-  // ---- Crosshair ----
-  pvCtx.strokeStyle = 'rgba(255,255,255,.7)'; pvCtx.lineWidth = 1.5;
-  pvCtx.beginPath();
-  pvCtx.moveTo(w/2-10, h/2); pvCtx.lineTo(w/2+10, h/2);
-  pvCtx.moveTo(w/2, h/2-10); pvCtx.lineTo(w/2, h/2+10);
-  pvCtx.stroke();
-  pvCtx.beginPath(); pvCtx.arc(w/2, h/2, 3, 0, Math.PI*2);
-  pvCtx.fillStyle = 'rgba(255,255,255,.55)'; pvCtx.fill();
+  // ---- Crosshair + weapon HUD (from combat.js) ----
+  if (type === 'humanoid') {
+    Combat.drawAimHUD(pvCtx, w, h, ent);
+  } else {
+    // Simple crosshair for vehicles
+    pvCtx.strokeStyle = 'rgba(255,255,255,.6)'; pvCtx.lineWidth = 1.5;
+    pvCtx.beginPath();
+    pvCtx.moveTo(w/2-8, h/2); pvCtx.lineTo(w/2+8, h/2);
+    pvCtx.moveTo(w/2, h/2-8); pvCtx.lineTo(w/2, h/2+8);
+    pvCtx.stroke();
+  }
+
+  // ---- Health bar ----
+  Combat.drawHealthBar(pvCtx, w, h, ent);
 
   // ---- Bottom-left panel ----
   pvCtx.fillStyle = 'rgba(0,0,0,.5)';
@@ -61,6 +71,19 @@ export function drawHUD() {
     pvCtx.fillText(`Speed: ${Math.abs(speed || hSpd).toFixed(1)} m/s`, 22, h-52);
     pvCtx.fillText(`${speed < 0 ? '← RÉ' : '→ FRENTE'}`, 22, h-37);
     pvCtx.fillText(grnd ? '● Chão' : '● Ar', 22, h-22);
+  } else if (type === 'motorcycle') {
+    pvCtx.fillText(`Speed: ${Math.abs(speed || hSpd).toFixed(1)} m/s`, 22, h-52);
+    pvCtx.fillText(speed > 0 ? '→ FRENTE' : '■ PARADO', 22, h-37);
+    pvCtx.fillText(grnd ? '● Chão' : '● Ar', 22, h-22);
+  } else if (type === 'horse') {
+    const gait = ctrl?.getAnimState?.() || '—';
+    pvCtx.fillText(`Andadura: ${gait.toUpperCase()}`, 22, h-52);
+    pvCtx.fillText(`Speed: ${hSpd.toFixed(1)} m/s`, 22, h-37);
+    pvCtx.fillText(grnd ? '● Chão' : '● Ar', 22, h-22);
+  } else if (type === 'bicycle') {
+    pvCtx.fillText(`Speed: ${hSpd.toFixed(1)} m/s`, 22, h-52);
+    pvCtx.fillText(hSpd < 0.1 ? '■ PARADO' : '→ PEDALANDO', 22, h-37);
+    pvCtx.fillText(grnd ? '● Chão' : '● Ar', 22, h-22);
   } else {
     pvCtx.fillText(state.toUpperCase(), 22, h-52);
     pvCtx.fillText(`Speed: ${hSpd.toFixed(1)} m/s`, 22, h-37);
@@ -82,6 +105,19 @@ export function drawHUD() {
   pvCtx.fillText(`${mp.x.toFixed(1)}, ${mp.y.toFixed(1)}, ${mp.z.toFixed(1)}`, w-20, h-33);
   pvCtx.fillText('T = alternar câmera · F = entrar/sair', w-20, h-18);
   pvCtx.textAlign = 'left';
+
+  // ---- Exit blocked hint ----
+  if (window._exitBlocked && (type === 'vehicle' || type === 'motorcycle' || type === 'bicycle' || type === 'horse')) {
+    pvCtx.fillStyle = 'rgba(255,92,92,.18)';
+    pvCtx.roundRect(w/2-130, h/2-20, 260, 36, 6); pvCtx.fill();
+    pvCtx.strokeStyle = 'rgba(255,92,92,.5)'; pvCtx.lineWidth = 1;
+    pvCtx.roundRect(w/2-130, h/2-20, 260, 36, 6); pvCtx.stroke();
+    pvCtx.fillStyle = '#ff5c5c'; pvCtx.font = 'bold 12px monospace'; pvCtx.textAlign = 'center';
+    pvCtx.fillText('⚠ Pare o veículo antes de sair', w/2, h/2);
+    pvCtx.fillStyle = 'rgba(255,92,92,.7)'; pvCtx.font = '10px monospace';
+    pvCtx.fillText('Pressione F quando parado', w/2, h/2 + 14);
+    pvCtx.textAlign = 'left';
+  }
 
   // ---- Top hint ----
   pvCtx.fillStyle = 'rgba(0,0,0,.32)';

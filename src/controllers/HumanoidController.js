@@ -4,19 +4,30 @@
 import * as THREE from 'three';
 import * as S from '../state.js';
 
-const GRAV         = -9.81;
+const GRAV          = -9.81;
 const LAND_DURATION = 0.2;
-// Drag aéreo horizontal: quanto a vel XZ decai por segundo no ar (0=sem decaimento)
-const AIR_DRAG     = 2.0;
+const AIR_DRAG      = 2.0;
+
+// ── Gravidade assimétrica (estilo GTA / Souls) ──────────────────
+// FALL_MULT: multiplicador aplicado à gravidade durante a descida.
+//   1.0 = gravidade simétrica (flutua)
+//   2.0 = cai 2× mais rápido que sobe  ← padrão natural
+//   3.0 = cai muito rápido (pesado, Souls-like)
+// LOW_JUMP_MULT: multiplicador extra quando solta Space antes do pico.
+//   Permite pulos curtos (tap) vs pulos altos (hold).
+const FALL_MULT      = 2.2;
+const LOW_JUMP_MULT  = 3.5;
 
 const STATE = { IDLE:'idle', WALK:'walk', RUN:'run', JUMP:'jump', FALL:'fall', LAND:'land' };
 
 export class HumanoidController {
   onEnter(entity) {
     this._vel          = new THREE.Vector3();
-    this._grounded     = false;
-    this._wasGrounded  = false;
-    this._state        = STATE.IDLE;
+    // Start grounded only if actually on or near the ground
+    const box = entity.mesh ? new THREE.Box3().setFromObject(entity.mesh) : null;
+    this._grounded     = box ? box.min.y <= 0.2 : false;
+    this._wasGrounded  = this._grounded;
+    this._state        = this._grounded ? STATE.IDLE : STATE.FALL;
     this._jumpConsumed = false;
     this._landTimer    = 0;
   }
@@ -65,8 +76,14 @@ export class HumanoidController {
       this._vel.z *= drag;
     }
 
-    // ---- Gravidade (Bug 3 fix: physics.step NÃO roda no humanoid — ver entities.js) ----
-    this._vel.y += GRAV * dt;
+    // ---- Gravidade assimétrica ────────────────────────────────
+    // Descendo               → FALL_MULT  : queda mais rápida e natural
+    // Subindo sem Space (tap) → LOW_JUMP_MULT: pulo curto ao soltar cedo
+    // Subindo com Space hold  → gravidade normal: pulo completo
+   const gravMult = this._vel.y < 0 ? FALL_MULT
+               : (!input.jump && this._vel.y > 0) ? LOW_JUMP_MULT
+               : 1.0;
+    this._vel.y += GRAV * gravMult * dt; // aplica UMA vez
 
     // ---- Mover ----
     m.position.addScaledVector(this._vel, dt);

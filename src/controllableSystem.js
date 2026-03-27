@@ -8,15 +8,44 @@ import { HumanoidController    } from './controllers/HumanoidController.js';
 import { VehicleController     } from './controllers/VehicleController.js';
 import { HelicopterController  } from './controllers/HelicopterController.js';
 import { AircraftController    } from './controllers/AircraftController.js';
+import { MotorcycleController  } from './controllers/MotorcycleController.js';
+import { HorseController       } from './controllers/HorseController.js';
+import { BicycleController     } from './controllers/BicycleController.js';
+import * as Combat from './combat.js';
 
-// ---- Controller factory ----
 function makeController(type) {
   switch (type) {
     case 'vehicle':     return new VehicleController();
     case 'helicopter':  return new HelicopterController();
     case 'aircraft':    return new AircraftController();
+    case 'motorcycle':  return new MotorcycleController();
+    case 'horse':       return new HorseController();
+    case 'bicycle':     return new BicycleController();
     default:            return new HumanoidController();
   }
+}
+
+// ----------------------------------------------------------------
+// Camera templates — used by editor panel and _updateCamera
+// ----------------------------------------------------------------
+export const CAM_TEMPLATES = {
+  'GTA V':         { camD: 5.5, camY: 1.8,  camPitchBase: -0.18, camLerp: 0.10, camFOV: 65 },
+  'RDR2':          { camD: 6.5, camY: 2.2,  camPitchBase: -0.22, camLerp: 0.08, camFOV: 60 },
+  'Zelda BOTW':    { camD: 8.0, camY: 3.5,  camPitchBase: -0.38, camLerp: 0.10, camFOV: 70 },
+  'Souls / DS':    { camD: 4.5, camY: 1.5,  camPitchBase: -0.15, camLerp: 0.14, camFOV: 60 },
+  'Over-shoulder': { camD: 3.0, camY: 1.2,  camPitchBase: -0.08, camLerp: 0.16, camFOV: 65 },
+  'Top-down':      { camD: 12,  camY: 10,   camPitchBase: -0.85, camLerp: 0.08, camFOV: 50 },
+  'Vehicle':       { camD: 7.5, camY: 2.8,  camPitchBase: -0.20, camLerp: 0.10, camFOV: 70 },
+  'Aéreo':         { camD: 12,  camY: 5,    camPitchBase: -0.25, camLerp: 0.08, camFOV: 75 },
+  'Custom':        { camD: 5,   camY: 2.0,  camPitchBase: -0.20, camLerp: 0.10, camFOV: 65 },
+};
+
+// Active camera settings (can be overridden per-entity or globally)
+export let activeCamSettings = { ...CAM_TEMPLATES['GTA V'] };
+export function setCamSettings(s) { Object.assign(activeCamSettings, s); }
+export function applyTemplate(name) {
+  const t = CAM_TEMPLATES[name];
+  if (t) Object.assign(activeCamSettings, t);
 }
 
 // ---- Default stats per type ----
@@ -25,20 +54,39 @@ export const DEFAULT_STATS = {
     speed: 5, sprint: 10, jump: 6, accel: 15, rotSpd: 8, camY: 2.0, camD: 5,
   },
   vehicle: {
-    topSpeed: 20, accel: 3, brake: 4, reverseSpeed: 5,
+    // forwardSign: 1 = W goes forward, -1 = W goes backward (invert GLB direction)
+    topSpeed: 20, reverseSpeed: 4, accel: 3, reverseAccel: 5, brake: 4,
     steerMax: 0.6, steerReturn: 6, turnRate: 2.2, drag: 0.5,
-    camY: 2.5, camD: 7,
+    forwardSign: 1,   // ← NEW: flip to -1 if model faces wrong way
+    camY: 2.8, camD: 7.5,
   },
   helicopter: {
     speed: 12, accel: 4, drag: 2.5,
     liftSpeed: 6, yawSpeed: 1.5, turboMult: 1.8,
-    rotorRPM: 18, camY: 4, camD: 10,
+    rotorRPM: 18, camY: 5, camD: 12,
   },
   aircraft: {
     thrust: 30, topSpeed: 60, drag: 0.3,
     stallSpeed: 8, liftForce: 12,
     pitchRate: 1.2, rollRate: 1.5, yawRate: 0.8,
     brakeForce: 3, camY: 3, camD: 12,
+  },
+  motorcycle: {
+    topSpeed: 28, accel: 4, brake: 5, reverseSpeed: 0, reverseAccel: 0,
+    steerMax: 0.7, steerReturn: 7, turnRate: 2.5, drag: 0.4,
+    turboMult: 1.6, maxLean: 0.4, maxWheelie: 0.2,
+    forwardSign: 1,
+    camY: 1.8, camD: 5,
+  },
+  horse: {
+    trotSpeed: 7, gallopSpeed: 14, accel: 4, decel: 3,
+    steerMax: 1.4, turnRate: 1.6, jumpForce: 7,
+    camY: 2.2, camD: 6,
+  },
+  bicycle: {
+    topSpeed: 9, accel: 2.5, brake: 4, drag: 0.6,
+    steerMax: 0.9, steerReturn: 6, turnRate: 1.8,
+    maxLean: 0.3, camY: 1.6, camD: 4,
   },
 };
 
@@ -48,7 +96,7 @@ export const DEFAULT_KEYBINDS = {
   left:         { key:'KeyA',        label:'A',     action:'Esquerda / Roll L'   },
   right:        { key:'KeyD',        label:'D',     action:'Direita / Roll R'    },
   sprint:       { key:'ShiftLeft',   label:'Shift', action:'Correr / Turbo / Throttle' },
-  jump:         { key:'Space',       label:'Space', action:'Pular / Subir / Airbrake' },
+  jump:         { key:'Space',       label:'Space', action:'Pular / Subir / Freio mão' },
   crouch:       { key:'ControlLeft', label:'Ctrl',  action:'Agachar / Descer'   },
   interact:     { key:'KeyE',        label:'E',     action:'Interagir'           },
   enterVehicle: { key:'KeyF',        label:'F',     action:'Entrar/Sair Veículo' },
@@ -86,6 +134,13 @@ export function possess(entity) {
   _controller.onEnter(entity);
   entity._controller = _controller;
 
+  // Apply camera template based on type
+  const tmpl = type === 'humanoid'   ? 'GTA V'
+             : type === 'helicopter' ? 'Aéreo'
+             : type === 'aircraft'   ? 'Aéreo'
+             : 'Vehicle';
+  applyTemplate(tmpl);
+
   if (entity.animMgr) {
     entity.animMgr.currentState = null;
     entity.animMgr._locked = false;
@@ -105,60 +160,139 @@ export function update(dt) {
   _checkEnterExit(input);
   _checkCycleTarget(input);
 
+  if (_activeEntity.controllable?.type === 'humanoid') {
+    Combat.update(dt, _activeEntity, input);
+  }
+
   _activeEntity.animMgr?.update(dt);
 }
 
-// ---- Camera ----
+// ---- Camera — uses activeCamSettings for distance/height/lerp ----
 function _updateCamera(dt) {
   const cam = S.gCam;
   const ent = _activeEntity;
   if (!ent?.mesh) return;
 
+  const cs = activeCamSettings;
+
+  // Per-entity overrides (camY/camD from stats)
+  const entStats = ent.controllable?.stats;
+  const dist  = (entStats?.camD ?? cs.camD);
+  const baseY = (entStats?.camY ?? cs.camY);
+
   const offset = _controller.getCameraOffset(ent);
   const yaw    = offset.yawOffset;
-  const pitch  = S.camPitch;
-  const dist   = offset.distance;
-  const hy     = offset.heightTarget;
 
+  // Effective pitch: player mouse + template base
+  const pitch  = S.camPitch + (cs.camPitchBase || -0.2);
+  const clampedPitch = Math.max(-1.4, Math.min(0.6, pitch));
+
+  // Camera position offset from entity
   const co = new THREE.Vector3(
-    Math.sin(yaw) * Math.cos(pitch) * dist,
-    hy + Math.sin(pitch) * dist * .5,
-    Math.cos(yaw) * Math.cos(pitch) * dist,
+    Math.sin(yaw) * Math.cos(clampedPitch) * dist,
+    baseY - Math.sin(clampedPitch) * dist * 0.4,
+    Math.cos(yaw) * Math.cos(clampedPitch) * dist,
   );
-  const tgt = ent.mesh.position.clone().add(new THREE.Vector3(0, hy * .5, 0));
-  cam.position.lerp(ent.mesh.position.clone().add(co), .12);
-  cam.lookAt(tgt);
+
+  // Look target = entity center + upward bias
+  const lookTarget = ent.mesh.position.clone().add(new THREE.Vector3(0, baseY * 0.6, 0));
+  const desiredPos = ent.mesh.position.clone().add(co);
+
+  // Smooth camera with configurable lerp speed
+  const lerp = cs.camLerp || 0.10;
+  cam.position.lerp(desiredPos, Math.min(1, lerp * 60 * dt));
+  cam.lookAt(lookTarget);
+
+  // Apply FOV
+  if (cs.camFOV && cam.fov !== cs.camFOV) {
+    cam.fov += (cs.camFOV - cam.fov) * Math.min(1, 5 * dt);
+    cam.updateProjectionMatrix();
+  }
 }
 
-// ---- Enter / Exit vehicle/aircraft (F key) ----
+// ---- Enter / Exit vehicle (F key) ----
+let _exitHintActive = false;
+let _exitHintCountdown = 0;
+
 function _checkEnterExit(input) {
   const down = input.enterVehicle;
   if (down && !_prevEnter) _tryEnterExit();
   _prevEnter = down;
+  // Decay exit hint
+  if (_exitHintCountdown > 0) {
+    _exitHintCountdown -= 0.016;
+    window._exitBlocked = _exitHintCountdown > 0;
+  }
 }
 
-const AERIAL_TYPES = ['helicopter', 'aircraft'];
-const VEHICLE_TYPES = ['vehicle', 'helicopter', 'aircraft'];
+const AERIAL_TYPES    = ['helicopter', 'aircraft'];
+const GROUND_TYPES    = ['vehicle', 'motorcycle', 'bicycle', 'horse'];
+const VEHICLE_TYPES   = [...AERIAL_TYPES, ...GROUND_TYPES];
+
+// ── ENTER vehicle ────────────────────────────────────────────────
+// Humanoid desaparece da cena (oculto), salva posição de retorno.
+// ── EXIT ground vehicle ──────────────────────────────────────────
+// Só sai se |speed| < 1 m/s. Humanoid reaparece ao lado, em pé.
+// ── EXIT aerial vehicle ──────────────────────────────────────────
+// Sai em qualquer velocidade. Humanoid reaparece na posição do veículo
+// e herda a velocidade (incluindo Y negativo = caindo de paraquedas).
 
 function _tryEnterExit() {
-  const ent = _activeEntity;
+  const ent  = _activeEntity;
   if (!ent) return;
   const type = ent.controllable?.type;
 
-  // Currently in a vehicle/aircraft → exit back to humanoid
+  // ── Saindo de um veículo ─────────────────────────────────────
   if (VEHICLE_TYPES.includes(type)) {
     const humanoid = S.entities.find(e => e.controllable?.type === 'humanoid' && e !== ent);
-    if (humanoid) {
-      const exitPos = ent.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
-      // Aerial: drop humanoid below current altitude to ground
-      if (AERIAL_TYPES.includes(type)) exitPos.y = 0;
-      humanoid.mesh.position.copy(exitPos);
-      possess(humanoid);
+    if (!humanoid) return;
+
+    if (GROUND_TYPES.includes(type)) {
+      // Terrestres: bloqueia saída se ainda em movimento
+      const speed = Math.abs(_controller?.getSpeed?.() ?? 0);
+      if (speed > 1.0) {
+        // Feedback visual — sem toast porque ui não está importada aqui
+        console.log('[Ctrl] Pare o veículo antes de sair (speed:', speed.toFixed(1), ')');
+        _showExitBlockedHint();
+        return;
+      }
+      // Sair: reaparece ao lado direito do veículo
+      const right = new THREE.Vector3(
+        Math.cos(ent.mesh.rotation.y),
+        0,
+        -Math.sin(ent.mesh.rotation.y)
+      ).multiplyScalar(1.8);
+      humanoid.mesh.position.copy(ent.mesh.position).add(right);
+      humanoid.mesh.position.y = 0; // garante chão
+      humanoid.mesh.rotation.y = ent.mesh.rotation.y; // mesma direção
+
+    } else {
+      // Aéreos: sai imediatamente, herda velocidade do veículo
+      const vel = _controller?.getVelocity?.() ?? new THREE.Vector3();
+      humanoid.mesh.position.copy(ent.mesh.position); // mesma posição no ar
+
+      // Injeta velocidade no humanoid controller para simular queda livre
+      // (será criado um novo HumanoidController em possess() logo abaixo)
+      humanoid._inheritVel = vel.clone();
+    }
+
+    // Tornar humanoid visível e tomar controle
+    humanoid.mesh.visible = true;
+    humanoid.visible = true;
+    possess(humanoid);
+
+    // Aplicar velocidade herdada (aéreos) ao novo controller
+    if (humanoid._inheritVel) {
+      const ctrl = humanoid._controller;
+      if (ctrl?.getVelocity) {
+        ctrl.getVelocity().copy(humanoid._inheritVel);
+      }
+      humanoid._inheritVel = null;
     }
     return;
   }
 
-  // Humanoid → find nearest controllable vehicle/aircraft
+  // ── Entrando em um veículo ───────────────────────────────────
   const pos = ent.mesh.position;
   const candidates = S.entities
     .filter(e => VEHICLE_TYPES.includes(e.controllable?.type))
@@ -166,7 +300,20 @@ function _tryEnterExit() {
     .filter(({ d }) => d < 5)
     .sort((a, b) => a.d - b.d);
 
-  if (candidates.length) possess(candidates[0].e);
+  if (!candidates.length) return;
+  const vehicle = candidates[0].e;
+
+  // Ocultar humanoid — ele "entra" no veículo
+  ent.mesh.visible = false;
+  ent.visible = false;
+
+  possess(vehicle);
+}
+
+// Dica visual quando bloqueado de sair
+function _showExitBlockedHint() {
+  _exitHintCountdown = 2.0;
+  window._exitBlocked = true;
 }
 
 // ---- Cycle camera target (T key) ----
@@ -175,12 +322,23 @@ function _checkCycleTarget(input) {
   if (down && !_prevCycle) _cycleTarget();
   _prevCycle = down;
 }
-
 function _cycleTarget() {
-  const controllables = S.entities.filter(e => e.controllable);
-  if (controllables.length < 2) return;
-  const idx = controllables.indexOf(_activeEntity);
-  const next = controllables[(idx + 1) % controllables.length];
+  const list = S.entities.filter(e => e.controllable);
+  if (list.length < 2) return;
+  const prev = _activeEntity;
+  const idx  = list.indexOf(prev);
+  const next = list[(idx + 1) % list.length];
+
+  // If switching away from humanoid to vehicle: hide humanoid
+  if (prev?.controllable?.type === 'humanoid' && VEHICLE_TYPES.includes(next?.controllable?.type)) {
+    prev.mesh.visible = false;
+    prev.visible = false;
+  }
+  // If switching to humanoid from vehicle: show humanoid
+  if (next?.controllable?.type === 'humanoid' && VEHICLE_TYPES.includes(prev?.controllable?.type)) {
+    next.mesh.visible = true;
+    next.visible = true;
+  }
   possess(next);
 }
 

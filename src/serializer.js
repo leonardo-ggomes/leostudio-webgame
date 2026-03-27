@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as S from './state.js';
 import { createEnt } from './entities.js';
-import { DEF_KB } from './state.js';
 import { showModal, showToast } from './ui.js';
 
 export function exportScene() {

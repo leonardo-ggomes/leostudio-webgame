@@ -14,7 +14,10 @@ import { showModal, showToast, makeOrbit, makeResizer, onResize } from './ui.js'
 import * as Ctrl       from './controllableSystem.js';
 import * as AnimPanel  from './animationPanel.js';
 import { nextKey }     from './inputManager.js';
-import { _loadHumanoidGLB } from './entities.js';
+import * as Collision from './collision.js';
+import * as Combat    from './combat.js';
+import * as Effects   from './effects.js';
+import { exportGame } from './exporter.js';
 
 // ----------------------------------------------------------------
 // SCENE SETUP
@@ -134,26 +137,80 @@ export function togglePlay() {
 // ----------------------------------------------------------------
 // PREVIEW — possess selected (or first controllable) entity
 // ----------------------------------------------------------------
-export function togglePreview() {
+export async function togglePreview(targetEnt) {
   if (!S.pvActive) {
-    const ent = S.selEnt?.controllable ? S.selEnt
-      : S.entities.find(e => e.controllable);
+    const ent = targetEnt
+      || (S.selEnt?.controllable ? S.selEnt : null)
+      || S.entities.find(e => e.controllable);
     if (!ent) { showModal('Preview','Adicione um Humanoid ou Veículo na cena.',[{label:'OK',cls:''}]); return; }
+
+    // ---- Loading screen ----
+    await _runPreviewLoader(ent);
+
     Ctrl.possess(ent);
-    S.setPvChar(ent); // Bug 6 fix: set pvChar so HUD can read controller state
+    S.setPvChar(ent);
     S.setActiveCam(S.gCam); S.setPvActive(true);
     document.getElementById('pv-badge').classList.add('on');
     document.getElementById('play-badge').classList.remove('on');
     document.getElementById('pv-canvas').classList.add('on');
     document.getElementById('btn-pv').classList.add('active');
     Gizmos.gGrp.visible = false;
-    // Remove foco de qualquer botão para evitar que Space o acione
     if (document.activeElement) document.activeElement.blur();
     document.getElementById('vp').requestPointerLock();
   } else {
     _exitPreview();
   }
   updStatus();
+}
+
+async function _runPreviewLoader(ent) {
+  const overlay  = document.getElementById('pv-loading');
+  const msgEl    = document.getElementById('pv-load-msg');
+  const barEl    = document.getElementById('pv-load-bar');
+  const detailEl = document.getElementById('pv-load-detail');
+  if (!overlay) return;
+
+  overlay.style.display = 'flex';
+  const setBar = v => { if(barEl) barEl.style.width = (v*100).toFixed(0)+'%'; };
+  const setMsg = (m,d='') => {
+    if(msgEl)    msgEl.textContent    = m;
+    if(detailEl) detailEl.textContent = d;
+  };
+
+  // Count entities that need loading
+  const toLoad = S.entities.filter(e => e.type === 'humanoid' && !e.animMgr);
+  const total  = Math.max(1, toLoad.length + S.entities.length);
+  let   done   = 0;
+
+  setMsg('Verificando objetos...', S.entities.length + ' entidades na cena');
+  setBar(0.05);
+  await new Promise(r => setTimeout(r, 80));
+
+  // Check each entity
+  for (const e of S.entities) {
+    done++;
+    setBar(0.1 + (done / total) * 0.7);
+    setMsg('Preparando: ' + e.name, e.type);
+    await new Promise(r => setTimeout(r, 16)); // let renderer breathe
+  }
+
+  // Wait for any pending GLB loads (animMgr not yet set)
+  const unloaded = S.entities.filter(e => e.type === 'humanoid' && !e.animMgr);
+  if (unloaded.length) {
+    setMsg('Aguardando modelos 3D...', unloaded.map(e=>e.name).join(', '));
+    setBar(0.85);
+    // Wait up to 4s for GLBs
+    let waited = 0;
+    while (unloaded.some(e => !e.animMgr) && waited < 4000) {
+      await new Promise(r => setTimeout(r, 100));
+      waited += 100;
+    }
+  }
+
+  setMsg('Pronto!', ent.name + ' pronto para controlar');
+  setBar(1);
+  await new Promise(r => setTimeout(r, 350));
+  overlay.style.display = 'none';
 }
 function _exitPreview() {
   Ctrl.possess(null);
@@ -167,9 +224,15 @@ function _exitPreview() {
 
 export function possessSelected() {
   const ent = S.selEnt;
-  if (!ent?.controllable) return;
-  if (!S.pvActive) togglePreview();
-  else Ctrl.possess(ent);
+  if (!ent?.controllable) { showToast('Selecione uma entidade com Controller primeiro.'); return; }
+  if (S.pvActive) {
+    // Already in preview — switch to this entity
+    Ctrl.possess(ent);
+    S.setPvChar(ent);
+  } else {
+    // Enter preview focused on this entity
+    togglePreview(ent);
+  }
 }
 
 export function changeCtrlType(type) {
@@ -181,26 +244,31 @@ export function changeCtrlType(type) {
 }
 
 export function loadCustomGLB() {
+  const ent = S.selEnt;
+  if (!ent?.controllable) { showToast('Selecione um Humanoid, Veículo ou Aeronave primeiro.'); return; }
   const input = document.createElement('input');
   input.type = 'file'; input.accept = '.glb,.gltf';
   input.onchange = async e => {
     const file = e.target.files[0]; if (!file) return;
     const url = URL.createObjectURL(file);
-    const ent = S.selEnt; if (!ent) return;
     showToast('Carregando ' + file.name + '...');
-    await _loadHumanoidGLB(ent, url);
+    ent._glbSrc = url.startsWith('blob:') ? (ent._glbSrc || 'assets/model.glb') : url;
+    await Ents.loadControllableGLB(ent, url);
     Inspector.refresh();
     AnimPanel.refresh();
+    showToast('✓ Modelo carregado: ' + file.name);
   };
   input.click();
 }
 
 function _showCtrlStats(type) {
-  const h = document.getElementById('ct-stats-humanoid');
-  const v = document.getElementById('ct-stats-vehicle');
-  if (h) h.style.display = type === 'humanoid' ? '' : 'none';
-  if (v) v.style.display = type === 'vehicle'  ? '' : 'none';
+  ['humanoid','vehicle','helicopter','aircraft','motorcycle','horse','bicycle'].forEach(t => {
+    const el = document.getElementById('ct-stats-' + t);
+    if (el) el.style.display = type === t ? '' : 'none';
+  });
 }
+// Expose to inspector.js refreshControllable
+window._showCtrlStats = _showCtrlStats;
 
 // ----------------------------------------------------------------
 // ADD OBJECT
@@ -210,7 +278,7 @@ export function addObj(type) {
   const ent = Ents.createEnt(type);
   ent.mesh.position.set((Math.random()-.5)*4, type==='plane'?0:1, (Math.random()-.5)*4);
   selectEnt(ent);
-  if (ent.char) Inspector.switchTab('ctrl'); _showCtrlStats(ent.controllable?.type || 'humanoid');
+  if (ent.controllable) { Inspector.switchTab('ctrl'); _showCtrlStats(ent.controllable.type); }
   updStatus();
 }
 
@@ -239,8 +307,134 @@ export function toggleSpace() {
   document.getElementById('btn-space').textContent = S.gizmoSpace==='world'?'Global':'Local';
 }
 export function toggleSnap(t) {
-  S.snap[t]=!S.snap[t];
-  document.getElementById('snap-'+t).classList.toggle('on', S.snap[t]);
+  S.snap[t] = !S.snap[t];
+  const btn = document.getElementById('snap-'+t+'-tb');
+  if (btn) btn.classList.toggle('snap-on', S.snap[t]);
+}
+
+// ----------------------------------------------------------------
+// CAMERA PANEL
+// ----------------------------------------------------------------
+export function applyCamTemplate(name) {
+  Ctrl.applyTemplate(name);
+  _refreshCamPanel();
+}
+
+export function applyCamParam() {
+  const d = parseFloat(document.getElementById('cam-dist')?.value)  || 5;
+  const h = parseFloat(document.getElementById('cam-height')?.value) || 2;
+  const p = parseFloat(document.getElementById('cam-pitch')?.value)  || -0.2;
+  const l = parseFloat(document.getElementById('cam-lerp')?.value)   || 0.10;
+  const f = parseFloat(document.getElementById('cam-fov')?.value)    || 65;
+  Ctrl.setCamSettings({ camD: d, camY: h, camPitchBase: p, camLerp: l, camFOV: f });
+  // Mark template as Custom
+  const sel = document.getElementById('cam-template');
+  if (sel) sel.value = 'Custom';
+}
+
+export function applyVehDirection(val) {
+  const ent = S.selEnt;
+  if (!ent?.controllable?.stats) { showToast('Selecione um Veículo ou Moto.'); return; }
+  const sign = parseFloat(val);
+  ent.controllable.stats.forwardSign = sign;
+  _refreshVehDirUI(ent);
+}
+
+export function applyVehSteering(val) {
+  const ent = S.selEnt;
+  if (!ent?.controllable?.stats) { showToast('Selecione um Veículo ou Moto.'); return; }
+  const sign = parseFloat(val);
+  ent.controllable.stats.steerSign = sign;
+  _refreshVehDirUI(ent);
+}
+
+function _refreshVehDirUI(ent) {
+  const st = ent?.controllable?.stats;
+  if (!st) return;
+  // Update toggle buttons visual state
+  const fwd  = document.getElementById('veh-fwd-normal');
+  const fwdI = document.getElementById('veh-fwd-invert');
+  const stL  = document.getElementById('veh-steer-normal');
+  const stLI = document.getElementById('veh-steer-invert');
+  if (fwd)  fwd.classList.toggle('active',  (st.forwardSign ?? 1) === 1);
+  if (fwdI) fwdI.classList.toggle('active', (st.forwardSign ?? 1) === -1);
+  if (stL)  stL.classList.toggle('active',  (st.steerSign   ?? 1) === 1);
+  if (stLI) stLI.classList.toggle('active', (st.steerSign   ?? 1) === -1);
+}
+
+export function refreshVehDirPanel() {
+  _refreshVehDirUI(S.selEnt);
+}
+
+function _refreshCamPanel() {
+  const cs = Ctrl.activeCamSettings;
+  const $ = id => document.getElementById(id);
+  if ($('cam-dist'))   $('cam-dist').value   = cs.camD         ?? 5;
+  if ($('cam-height')) $('cam-height').value  = cs.camY         ?? 2;
+  if ($('cam-pitch'))  $('cam-pitch').value   = cs.camPitchBase ?? -0.2;
+  if ($('cam-lerp'))   $('cam-lerp').value    = cs.camLerp      ?? 0.10;
+  if ($('cam-fov'))    $('cam-fov').value     = cs.camFOV       ?? 65;
+}
+
+export function refreshCamPanel() { _refreshCamPanel(); }
+
+// ----------------------------------------------------------------
+// EFFECTS PANEL
+// ----------------------------------------------------------------
+export function attachFX() {
+  const ent = S.selEnt;
+  if (!ent) { showToast('Selecione um objeto primeiro.'); return; }
+  const fx = document.getElementById('fx-loop-select')?.value;
+  if (!fx) { showToast('Selecione um efeito.'); return; }
+  const offsetY = parseFloat(document.getElementById('fx-offset-y')?.value) || 0.5;
+  Effects.attachEffect(ent, fx, offsetY);
+  _refreshFXList(ent);
+  showToast('✓ Efeito ' + fx + ' adicionado a ' + ent.name);
+}
+export function detachFX() {
+  const ent = S.selEnt;
+  if (!ent) return;
+  const fx = document.getElementById('fx-loop-select')?.value;
+  if (!fx) return;
+  Effects.detachEffect(ent, fx);
+  _refreshFXList(ent);
+}
+export function spawnFX() {
+  const fx  = document.getElementById('fx-event-select')?.value;
+  const pos = S.selEnt?.mesh?.position?.clone() || new THREE.Vector3(0,1,0);
+  if (!fx) return;
+  Effects.spawn(fx, pos);
+  showToast('▶ ' + fx + ' preview');
+}
+function _refreshFXList(ent) {
+  const el = document.getElementById('fx-active-list');
+  if (!el) return;
+  const list = ent._effects || [];
+  el.textContent = list.length ? list.map(e => e.effect + ' (Y+' + e.offsetY + ')').join(', ') : 'Nenhum efeito ativo';
+}
+
+// ----------------------------------------------------------------
+// FULLSCREEN
+// ----------------------------------------------------------------
+export function toggleFullscreen() {
+  const vp = document.getElementById('vp-wrap');
+  if (!document.fullscreenElement) {
+    (vp.requestFullscreen || vp.webkitRequestFullscreen).call(vp);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const isFull = !!document.fullscreenElement;
+  document.getElementById('btn-full')?.classList.toggle('active', isFull);
+  onResize();
+});
+
+// ----------------------------------------------------------------
+// EXPORT GAME
+// ----------------------------------------------------------------
+export function exportGameHTML() {
+  exportGame();
 }
 
 // ----------------------------------------------------------------
@@ -376,6 +570,9 @@ function loop() {
   }
 
   Physics.step(dt);
+  Collision.step();
+  Combat.tickHealth(dt);
+  Effects.update(dt);      // particle systems
 
   // Tick ALL entity animators every frame (mixer needs continuous update)
   S.entities.forEach(e => { if (e.animMgr) e.animMgr.update(dt); });

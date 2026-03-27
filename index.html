@@ -2,41 +2,25 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1">
 <title>EngineLeo</title>
 <script type="importmap">
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
     "three/examples/jsm/loaders/GLTFLoader.js": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js"
+  },
+  "scopes": {
+    "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/": {
+      "../../build/three.module.js": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+      "../../../build/three.module.js": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js"
+    }
   }
 }
 </script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-<div id="toolbar">
-  <div class="logo">Engine<span>Leo</span> <span class="logo-ver">v1</span></div>
-  <div class="tb-sep"></div>
-  <button class="tb-btn active" id="btn-move"  onclick="E.setGMode('translate')" title="W">⬡ Mover</button>
-  <button class="tb-btn"        id="btn-rot"   onclick="E.setGMode('rotate')"    title="E">↻ Rotar</button>
-  <button class="tb-btn"        id="btn-scl"   onclick="E.setGMode('scale')"     title="R">⤢ Escalar</button>
-  <div class="tb-sep"></div>
-  <button class="tb-btn" id="btn-space" onclick="E.toggleSpace()">Global</button>
-  <div class="tb-sep"></div>
-  <button class="tb-btn" id="btn-add" onclick="E.toggleAddMenu(event)">＋ Add</button>
-  <div class="tb-sep"></div>
-  <button class="tb-btn play"    id="btn-play" onclick="E.togglePlay()">▶ Play</button>
-  <button class="tb-btn pv-mode" id="btn-pv"   onclick="E.togglePreview()">◎ Preview</button>
-  <div class="tb-sep"></div>
-  <button class="tb-btn"     onclick="E.exportScene()"                            title="Ctrl+S">⬇ Export</button>
-  <button class="tb-btn"     onclick="document.getElementById('imp-json').click()">⬆ Import</button>
-  <button class="tb-btn amb" onclick="document.getElementById('imp-gltf').click()">⬆ GLTF</button>
-  <input type="file" id="imp-json" accept=".json" style="display:none" onchange="E.importScene(event)">
-  <input type="file" id="imp-gltf" accept=".gltf,.glb" style="display:none" onchange="E.importGLTF(event)">
-  <div class="tb-spacer"></div>
-  <span class="tb-status" id="status-txt">Iniciando...</span>
-</div>
 
 <div id="add-menu">
   <div class="am-item" onclick="E.addObj('cube')">◻ Cubo</div>
@@ -50,6 +34,10 @@
   <div class="am-item" onclick="E.addObj('helicopter')">🚁 Helicóptero</div>
   <div class="am-item" onclick="E.addObj('aircraft')">✈ Avião</div>
   <div class="am-sep"></div>
+  <div class="am-item" onclick="E.addObj('motorcycle')">🏍 Moto</div>
+  <div class="am-item" onclick="E.addObj('horse')">🐴 Cavalo</div>
+  <div class="am-item" onclick="E.addObj('bicycle')">🚲 Bicicleta</div>
+  <div class="am-sep"></div>
   <div class="am-item" onclick="E.addObj('light-point')">◉ Luz Ponto</div>
   <div class="am-item" onclick="E.addObj('light-dir')">☀ Luz Direcional</div>
   <div class="am-sep"></div>
@@ -57,106 +45,261 @@
   <div class="am-item" onclick="E.addObj('camera')">◎ Camera Node</div>
 </div>
 
-<div id="main">
-  <!-- LEFT: HIERARCHY -->
-  <div id="panel-left">
-    <div class="panel-hdr">
-      <span class="panel-title">Hierarquia</span>
-      <button class="panel-btn" onclick="E.toggleAddMenu(event)">+</button>
+<div id="shell">
+
+  <!-- ================================================================
+       TOOLBAR
+       ================================================================ -->
+  <div id="toolbar">
+    <div class="logo">Engine<span class="logo-e">Leo</span> <span class="logo-ver">v2</span></div>
+    <div class="tb-sep"></div>
+
+    <!-- Transform group -->
+    <div class="tb-group">
+      <button class="tb-btn active" id="btn-move" onclick="E.setGMode('translate')" title="W — Mover">⬡ Mover</button>
+      <button class="tb-btn"        id="btn-rot"  onclick="E.setGMode('rotate')"    title="E — Rotar">↻ Rotar</button>
+      <button class="tb-btn"        id="btn-scl"  onclick="E.setGMode('scale')"     title="R — Escalar">⤢ Escalar</button>
     </div>
-    <div id="hier-list"></div>
+    <div class="tb-sep"></div>
+
+    <!-- Space + Snap group -->
+    <div class="tb-group">
+      <button class="tb-btn" id="btn-space" onclick="E.toggleSpace()" title="Espaço local/global">Global</button>
+      <button id="snap-grid-tb"  class="tb-btn icon-only" onclick="E.toggleSnap('grid')"  title="Snap grade">⊞ Grid</button>
+      <button id="snap-angle-tb" class="tb-btn icon-only" onclick="E.toggleSnap('angle')" title="Snap ângulo">∠ Ang</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <!-- Add Object -->
+    <div class="tb-group">
+      <button class="tb-btn" id="btn-add" onclick="E.toggleAddMenu(event)">＋ Adicionar ▾</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <!-- Play / Preview group -->
+    <div class="tb-group">
+      <button class="tb-btn play"    id="btn-play" onclick="E.togglePlay()"       title="P — Play">▶ Play</button>
+      <button class="tb-btn pv-mode" id="btn-pv"   onclick="E.togglePreview()"    title="Entrar preview">◎ Preview</button>
+      <button class="tb-btn pv-mode" id="btn-full" onclick="E.toggleFullscreen()" title="Tela cheia">⛶</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <!-- IO group (shrinkable) -->
+    <div class="tb-group shrinkable">
+      <button class="tb-btn" onclick="E.exportScene()"                                    title="Ctrl+S — Exportar cena">⬇ Cena</button>
+      <button class="tb-btn" onclick="document.getElementById('imp-json').click()"        title="Importar cena">⬆ Import</button>
+      <button class="tb-btn amb" onclick="document.getElementById('imp-gltf').click()"   title="Importar GLTF/GLB">⬆ GLTF</button>
+    </div>
+    <div class="tb-sep"></div>
+
+    <!-- Export Game -->
+    <div class="tb-group">
+      <button class="tb-btn grn" onclick="E.exportGameHTML()" title="Exportar jogo como HTML standalone">🎮 Export Game</button>
+    </div>
+
+  <input type="file" id="imp-json" accept=".json" style="display:none" onchange="E.importScene(event)">
+  <input type="file" id="imp-gltf" accept=".gltf,.glb" style="display:none" onchange="E.importGLTF(event)">
+
+    <div class="tb-flex"></div>
+    <span class="tb-status" id="status-txt">Iniciando...</span>
   </div>
-  <div class="resizer" id="res-l"></div>
 
-  <!-- VIEWPORT -->
-  <div id="vp-wrap">
-    <canvas id="vp"></canvas>
-    <canvas id="pv-canvas"></canvas>
-    <div id="nav-gizmo"><canvas id="nav-cvs" width="76" height="76"></canvas></div>
-    <div id="xform-hud"></div>
-    <div id="play-badge">▶ SIMULANDO</div>
-    <div id="pv-badge">◎ PREVIEW — RMB câmera · Esc sair</div>
-    <div id="vp-info">
-      <div id="info-fps">FPS: —</div>
-      <div id="info-tri">Tri: —</div>
-      <div id="info-obj">Obj: 0</div>
-    </div>
-    <div id="snap-bar">
-      <button class="snap-btn" id="snap-grid"  onclick="E.toggleSnap('grid')">Grid 1m</button>
-      <button class="snap-btn" id="snap-angle" onclick="E.toggleSnap('angle')">15°</button>
-    </div>
+  <!-- ================================================================
+       INFO BAR  (FPS, tris, objects — compact)
+       ================================================================ -->
+  <div id="info-bar">
+    <span class="sb-item"><span id="info-fps">FPS: —</span></span>
+    <span class="ib-sep"></span>
+    <span class="sb-item"><span id="info-tri">Tri: —</span></span>
+    <span class="ib-sep"></span>
+    <span class="sb-item"><span id="info-obj">Obj: 0</span></span>
+    <div style="flex:1"></div>
+    <span style="color:var(--text3)">WASD mover · F focar · Del deletar · Ctrl+D duplicar · P play · Esc preview</span>
   </div>
 
-  <div class="resizer" id="res-r"></div>
+  <!-- ================================================================
+       MAIN AREA
+       ================================================================ -->
+  <div id="main">
 
-  <!-- RIGHT: INSPECTOR -->
-  <div id="panel-right">
+    <!-- LEFT: HIERARCHY -->
+    <div id="panel-left">
+      <div class="panel-hdr">
+        <span class="panel-title">📋 Hierarquia</span>
+        <button class="panel-btn" onclick="E.toggleAddMenu(event)" title="Adicionar objeto">+</button>
+      </div>
+      <div id="hier-list"></div>
+    </div>
+
+    <div class="resizer" id="res-l"></div>
+
+    <!-- CENTER: VIEWPORT -->
+    <div id="vp-wrap">
+      <canvas id="vp"></canvas>
+      <canvas id="pv-canvas" width="800" height="600"></canvas>
+
+      <!-- Status badges -->
+      <div class="vp-badge-row">
+        <div class="vp-badge" id="play-badge">▶ PLAY</div>
+        <div class="vp-badge" id="pv-badge">◎ PREVIEW — RMB mira · LMB atirar · 1=Soco 2=Pistola 3=Rifle · R recarregar · Esc sair</div>
+      </div>
+
+      <!-- Nav gizmo canvas (drawn by gizmos.js) -->
+      <canvas id="nav-gizmo" width="80" height="80"></canvas>
+    </div>
+
+    <div class="resizer" id="res-r"></div>
+
+    <!-- RIGHT: INSPECTOR -->
+    <div id="panel-right">
     <div id="ins-tabs">
-      <div class="ins-tab active" onclick="I.switchTab('xform')">Xform</div>
-      <div class="ins-tab"        onclick="I.switchTab('physics')">Física</div>
-      <div class="ins-tab"        onclick="I.switchTab('ctrl')">Ctrl</div>
-      <div class="ins-tab"        onclick="I.switchTab('anim')">Anim</div>
-      <div class="ins-tab"        onclick="I.switchTab('scripts')">Scripts</div>
+      <div class="ins-tab active" onclick="I.switchTab('xform')" title="⬡ Transform">
+        <span class="tab-icon">⬡</span>
+        <span>XForm</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('physics')" title="⚙ Física / Collider">
+        <span class="tab-icon">⚙</span>
+        <span>Física</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('ctrl')" title="🎮 Controller">
+        <span class="tab-icon">🎮</span>
+        <span>Ctrl</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('anim')" title="▶ Animações">
+        <span class="tab-icon">▶</span>
+        <span>Anim</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('effects')" title="✨ Efeitos Especiais">
+        <span class="tab-icon">✨</span>
+        <span>Efeitos</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('camera'); E.refreshCamPanel(); E.refreshVehDirPanel()" title="◎ Câmera">
+        <span class="tab-icon">◎</span>
+        <span>Câmera</span>
+      </div>
+      <div class="ins-tab" onclick="I.switchTab('scripts')" title="{} Scripts">
+        <span class="tab-icon">{}</span>
+        <span>Scripts</span>
+      </div>
     </div>
+    <div id="ins-content">
+      <div id="ins-content-hdr">
+        <span class="hdr-icon">⬡</span>
+        <span id="ins-content-hdr-txt">Transform</span>
+      </div>
 
     <!-- ── TRANSFORM ── -->
     <div class="tab-panel active" id="tab-xform">
       <div class="no-sel" id="nsel-xf"><div class="no-sel-txt">Nenhum objeto<br>selecionado</div></div>
       <div id="xf-fields" style="display:none">
+
+        <!-- Posição -->
         <div class="ins-sec">
           <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Posição</div>
-          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
-            <input class="ins-f fx" type="number" id="px" step="0.1" oninput="I.applyXf()">
-            <input class="ins-f fy" type="number" id="py" step="0.1" oninput="I.applyXf()">
-            <input class="ins-f fz" type="number" id="pz" step="0.1" oninput="I.applyXf()">
-          </div></div></div>
+          <div class="ins-body">
+            <div class="vec3-block">
+              <div class="vec3-row">
+                <div class="vec3-field">
+                  <div class="vec3-axis ax">X</div>
+                  <input class="ins-f fx" type="number" id="px" step="0.1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis ay">Y</div>
+                  <input class="ins-f fy" type="number" id="py" step="0.1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis az">Z</div>
+                  <input class="ins-f fz" type="number" id="pz" step="0.1" oninput="I.applyXf()">
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- Rotação -->
         <div class="ins-sec">
           <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Rotação (°)</div>
-          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
-            <input class="ins-f fx" type="number" id="rx" step="1" oninput="I.applyXf()">
-            <input class="ins-f fy" type="number" id="ry" step="1" oninput="I.applyXf()">
-            <input class="ins-f fz" type="number" id="rz" step="1" oninput="I.applyXf()">
-          </div></div></div>
+          <div class="ins-body">
+            <div class="vec3-block">
+              <div class="vec3-row">
+                <div class="vec3-field">
+                  <div class="vec3-axis ax">X</div>
+                  <input class="ins-f fx" type="number" id="rx" step="1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis ay">Y</div>
+                  <input class="ins-f fy" type="number" id="ry" step="1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis az">Z</div>
+                  <input class="ins-f fz" type="number" id="rz" step="1" oninput="I.applyXf()">
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- Escala -->
         <div class="ins-sec">
           <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Escala</div>
-          <div class="ins-body"><div class="ins-row"><div class="ins-vec">
-            <input class="ins-f fx" type="number" id="sx" step="0.1" oninput="I.applyXf()">
-            <input class="ins-f fy" type="number" id="sy" step="0.1" oninput="I.applyXf()">
-            <input class="ins-f fz" type="number" id="sz" step="0.1" oninput="I.applyXf()">
-          </div></div></div>
-        </div>
-        <div class="ins-sec" style="padding:6px 10px">
-          <div class="ins-row" style="margin-bottom:4px">
-            <div class="ins-lbl">Nome</div>
-            <input class="ins-f full" type="text" id="obj-name" oninput="I.applyName()">
-          </div>
-          <div class="ins-row">
-            <div class="ins-lbl">Layer</div>
-            <select class="ins-sel" id="obj-layer">
-              <option value="default">Default</option>
-              <option value="player">Player</option>
-              <option value="npc">NPC</option>
-              <option value="vehicle">Vehicle</option>
-              <option value="static">Static</option>
-            </select>
-          </div>
-          <div class="ins-row" style="margin-top:4px">
-            <input class="ins-chk" type="checkbox" id="obj-vis" onchange="I.applyVis()">
-            <label class="ins-chk-lbl" for="obj-vis">Visível</label>
+          <div class="ins-body">
+            <div class="vec3-block">
+              <div class="vec3-row">
+                <div class="vec3-field">
+                  <div class="vec3-axis ax">X</div>
+                  <input class="ins-f fx" type="number" id="sx" step="0.1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis ay">Y</div>
+                  <input class="ins-f fy" type="number" id="sy" step="0.1" oninput="I.applyXf()">
+                </div>
+                <div class="vec3-field">
+                  <div class="vec3-axis az">Z</div>
+                  <input class="ins-f fz" type="number" id="sz" step="0.1" oninput="I.applyXf()">
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div style="padding:6px 10px">
-          <div class="ins-2col">
-            <button class="ins-btn red" onclick="E.deleteSel()">✕ Deletar</button>
-            <button class="ins-btn"     onclick="E.dupSel()">⎘ Duplicar</button>
-          </div>
-          <div class="ins-2col" style="margin-top:3px">
-            <button class="ins-btn" onclick="E.focusSel()">◎ Focar</button>
-            <button class="ins-btn" onclick="E.resetXf()">↺ Reset</button>
+
+        <!-- Objeto -->
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Objeto</div>
+          <div class="ins-body">
+            <div class="field-group">
+              <span class="field-group-lbl">Nome</span>
+              <input class="ins-f full" type="text" id="obj-name" oninput="I.applyName()">
+            </div>
+            <div class="field-group" style="margin-top:6px">
+              <span class="field-group-lbl">Layer</span>
+              <select class="ins-sel" id="obj-layer" onchange="I.applyLayer()" style="height:26px;width:100%">
+                <option value="default">Default</option>
+                <option value="player">Player</option>
+                <option value="npc">NPC</option>
+                <option value="vehicle">Vehicle</option>
+                <option value="static">Static</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+              <input class="ins-chk" type="checkbox" id="obj-vis" onchange="I.applyVis()">
+              <label class="ins-chk-lbl" for="obj-vis">Visível na cena</label>
+            </div>
           </div>
         </div>
+
+        <!-- Ações -->
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Ações</div>
+          <div class="ins-body">
+            <div class="ins-grid2">
+              <button class="ins-btn red"  onclick="E.deleteSel()">✕ Deletar</button>
+              <button class="ins-btn"      onclick="E.dupSel()">⎘ Duplicar</button>
+              <button class="ins-btn"      onclick="E.focusSel()">◎ Focar</button>
+              <button class="ins-btn"      onclick="E.resetXf()">↺ Reset XF</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -164,58 +307,86 @@
     <div class="tab-panel" id="tab-physics">
       <div class="no-sel" id="nsel-phy"><div class="no-sel-txt">Nenhum objeto<br>selecionado</div></div>
       <div id="phy-fields" style="display:none">
+
         <div class="ins-sec">
           <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Corpo Rígido</div>
           <div class="ins-body">
-            <div class="ins-row" style="margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:8px;padding:2px 0 6px">
               <input class="ins-chk" type="checkbox" id="ph-on" onchange="I.applyPhy()">
-              <label class="ins-chk-lbl" for="ph-on">Habilitar RigidBody</label>
+              <label class="ins-chk-lbl" for="ph-on" style="font-weight:700;color:var(--text)">Habilitar RigidBody</label>
             </div>
-            <div class="ins-row">
-              <div class="ins-lbl">Tipo</div>
-              <select class="ins-sel" id="ph-type" onchange="I.applyPhy()">
+            <div class="field-group">
+              <span class="field-group-lbl">Tipo de corpo</span>
+              <select class="ins-sel" id="ph-type" onchange="I.applyPhy()" style="height:26px;width:100%">
                 <option value="dynamic">Dinâmico</option>
                 <option value="static">Estático</option>
                 <option value="kinematic">Cinemático</option>
               </select>
             </div>
-            <div class="ins-row"><div class="ins-lbl">Massa</div>    <input class="ins-f" type="number" id="ph-mass" value="1"   step="0.1"  min="0.01" oninput="I.applyPhy()"></div>
-            <div class="ins-row"><div class="ins-lbl">Fricção</div>  <input class="ins-f" type="number" id="ph-fric" value="0.5" step="0.05" min="0" max="1" oninput="I.applyPhy()"></div>
-            <div class="ins-row"><div class="ins-lbl">Restitui.</div><input class="ins-f" type="number" id="ph-rest" value="0.3" step="0.05" min="0" max="1" oninput="I.applyPhy()"></div>
-            <div class="ins-row">
+            <div class="ins-grid2" style="margin-top:6px">
+              <div class="field-group">
+                <span class="field-group-lbl">Massa (kg)</span>
+                <input class="ins-f" type="number" id="ph-mass" value="1" step="0.1" min="0.01" oninput="I.applyPhy()">
+              </div>
+              <div class="field-group">
+                <span class="field-group-lbl">Fricção</span>
+                <input class="ins-f" type="number" id="ph-fric" value="0.5" step="0.05" min="0" max="1" oninput="I.applyPhy()">
+              </div>
+              <div class="field-group">
+                <span class="field-group-lbl">Restituição</span>
+                <input class="ins-f" type="number" id="ph-rest" value="0.3" step="0.05" min="0" max="1" oninput="I.applyPhy()">
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
               <input class="ins-chk" type="checkbox" id="ph-grav" checked onchange="I.applyPhy()">
-              <label class="ins-chk-lbl" for="ph-grav">Gravidade</label>
+              <label class="ins-chk-lbl" for="ph-grav">Ativar gravidade</label>
             </div>
           </div>
         </div>
+
         <div class="ins-sec">
           <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Collider</div>
           <div class="ins-body">
-            <div class="ins-row">
-              <div class="ins-lbl">Forma</div>
-              <select class="ins-sel" id="ph-col" onchange="I.applyPhy()">
-                <option value="box">Box</option><option value="sphere">Sphere</option>
-                <option value="capsule">Capsule</option><option value="mesh">Mesh</option>
+            <div class="field-group">
+              <span class="field-group-lbl">Forma</span>
+              <select class="ins-sel" id="ph-col" onchange="I.applyPhy()" style="height:26px;width:100%">
+                <option value="box">Box</option>
+                <option value="sphere">Sphere</option>
+                <option value="capsule">Capsule</option>
+                <option value="mesh">Mesh</option>
               </select>
             </div>
-            <div class="ins-row"><input class="ins-chk" type="checkbox" id="ph-trig"><label class="ins-chk-lbl" for="ph-trig">É Trigger</label></div>
-            <div class="ins-row"><input class="ins-chk" type="checkbox" id="ph-show" onchange="I.toggleColViz()"><label class="ins-chk-lbl" for="ph-show">Mostrar collider</label></div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input class="ins-chk" type="checkbox" id="ph-trig">
+                <span class="ins-chk-lbl">É Trigger (sem colisão física)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input class="ins-chk" type="checkbox" id="ph-show" onchange="I.toggleColViz()">
+                <span class="ins-chk-lbl">Mostrar collider (debug)</span>
+              </label>
+            </div>
           </div>
         </div>
-        <div style="padding:6px 10px">
-          <button class="ins-btn grn" onclick="E.applyImpulse()">↑ Aplicar Impulso</button>
-          <div class="ins-row" style="margin-top:4px">
-            <div class="ins-lbl">Força Y</div>
-            <input class="ins-f" type="number" id="imp-y" value="5" step="0.5">
+
+        <div class="ins-sec">
+          <div class="ins-sec-hdr" onclick="I.toggleSec(this)"><span class="ins-tri">▾</span>Impulso</div>
+          <div class="ins-body">
+            <div class="field-group">
+              <span class="field-group-lbl">Força Y</span>
+              <input class="ins-f" type="number" id="imp-y" value="5" step="0.5">
+            </div>
+            <button class="ins-btn grn" style="margin-top:6px" onclick="E.applyImpulse()">↑ Aplicar Impulso</button>
           </div>
         </div>
+
       </div>
     </div>
 
     <!-- ── CONTROLLER ── -->
     <div class="tab-panel" id="tab-ctrl">
       <div class="no-sel" id="nsel-ctrl"><div class="no-sel-txt">Selecione um Humanoid<br>ou Veículo</div></div>
-      <div id="ctrl-fields" style="display:none; flex:1; overflow-y:auto; flex-direction:column">
+      <div id="ctrl-fields" style="display:none">
         <div class="sep-lbl">Controller</div>
         <div style="padding:0 10px 6px">
           <div class="ins-row">
@@ -225,6 +396,9 @@
               <option value="vehicle">Veículo (carro)</option>
               <option value="helicopter">Helicóptero</option>
               <option value="aircraft">Avião</option>
+              <option value="motorcycle">Moto</option>
+              <option value="horse">Cavalo</option>
+              <option value="bicycle">Bicicleta</option>
             </select>
           </div>
           <div class="ins-2col" style="margin-top:4px">
@@ -234,26 +408,83 @@
         </div>
 
         <div class="sep-lbl">Stats — Humanoid</div>
-        <div style="padding:0 10px" id="ct-stats-humanoid">
-          <div class="stat-row"><span class="stat-lbl">Velocidade</span> <input class="stat-f" type="number" id="ct-speed"  step="0.5" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Corrida</span>    <input class="stat-f" type="number" id="ct-sprint" step="0.5" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Pulo</span>       <input class="stat-f" type="number" id="ct-jump"   step="0.5" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Aceleração</span> <input class="stat-f" type="number" id="ct-accel"  step="1"   oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Rot. Spd</span>   <input class="stat-f" type="number" id="ct-rotSpd" step="0.5" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Câm. Y</span>     <input class="stat-f" type="number" id="ct-camY"   step="0.1" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Câm. D</span>     <input class="stat-f" type="number" id="ct-camD"   step="0.5" oninput="I.applyControllable()"></div>
+        <div style="padding:0 10px" id="ct-stats-humanoid" style="padding:8px 8px 4px;display:flex;flex-direction:column;gap:6px">
+          <div class="field-group"><span class="field-group-lbl">Velocidade</span><input class="ins-f" type="number" id="ct-speed"  step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Corrida</span><input class="ins-f" type="number" id="ct-sprint" step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Pulo</span><input class="ins-f" type="number" id="ct-jump"   step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Aceleração</span><input class="ins-f" type="number" id="ct-accel"  step="1"   oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Rot. Spd</span><input class="ins-f" type="number" id="ct-rotSpd" step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. Y</span><input class="ins-f" type="number" id="ct-camY"   step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. D</span><input class="ins-f" type="number" id="ct-camD"   step="0.5" oninput="I.applyControllable()"></div>
         </div>
 
         <div style="padding:0 10px;display:none" id="ct-stats-vehicle">
           <div class="sep-lbl" style="padding:8px 0 3px">Stats — Vehicle</div>
-          <div class="stat-row"><span class="stat-lbl">Vel. Máx.</span>  <input class="stat-f" type="number" id="ct-topSpeed"    step="1"    oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Aceleração</span> <input class="stat-f" type="number" id="ct-accelV"       step="0.5"  oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Frenagem</span>   <input class="stat-f" type="number" id="ct-brake"        step="0.5"  oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Ré</span>         <input class="stat-f" type="number" id="ct-reverseSpeed" step="0.5"  oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Curva</span>      <input class="stat-f" type="number" id="ct-turnRate"     step="0.1"  oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Steer Max</span>  <input class="stat-f" type="number" id="ct-steerMax"     step="0.05" oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Câm. Y</span>     <input class="stat-f" type="number" id="ct-camYv"        step="0.1"  oninput="I.applyControllable()"></div>
-          <div class="stat-row"><span class="stat-lbl">Câm. D</span>     <input class="stat-f" type="number" id="ct-camDv"        step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Vel. Máx.</span><input class="ins-f" type="number" id="ct-topSpeed"    step="1"    oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Aceleração</span><input class="ins-f" type="number" id="ct-accel"        step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Frenagem</span><input class="ins-f" type="number" id="ct-brake"        step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Ré</span><input class="ins-f" type="number" id="ct-reverseSpeed" step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Curva</span><input class="ins-f" type="number" id="ct-turnRate"     step="0.1"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Steer Max</span><input class="ins-f" type="number" id="ct-steerMax"     step="0.05" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Retorno</span><input class="ins-f" type="number" id="ct-steerReturn"  step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Drag</span><input class="ins-f" type="number" id="ct-drag"         step="0.05" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Ac. Ré</span><input class="ins-f" type="number" id="ct-reverseAccel" step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Sinal Dir.</span><input class="ins-f" type="number" id="ct-forwardSign"  step="1" min="-1" max="1" oninput="I.applyControllable()" title="1=normal -1=invertido"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. Y</span><input class="ins-f" type="number" id="ct-camY"         step="0.1"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. D</span><input class="ins-f" type="number" id="ct-camD"         step="0.5"  oninput="I.applyControllable()"></div>
+        </div>
+
+        <div style="padding:0 10px;display:none" id="ct-stats-motorcycle">
+          <div class="sep-lbl" style="padding:8px 0 3px">Stats — Moto</div>
+          <div class="field-group">
+              <span class="field-group-lbl">Vel. Máx.</span>
+              <input class="ins-f" type="number" id="ct-topSpeed"   step="1"    oninput="I.applyControllable()">
+            </div>
+          <div class="field-group">
+              <span class="field-group-lbl">Aceleração</span>
+              <input class="ins-f" type="number" id="ct-accel"    step="0.5"  oninput="I.applyControllable()">
+            </div>
+          <div class="field-group"><span class="field-group-lbl">Frenagem</span><input class="ins-f" type="number" id="ct-brake"    step="0.5"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Drag</span><input class="ins-f" type="number" id="ct-drag"     step="0.05" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Turbo</span><input class="ins-f" type="number" id="ct-turboMult" step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Max Lean</span><input class="ins-f" type="number" id="ct-maxLean"    step="0.05" oninput="I.applyControllable()"></div>
+          <div class="field-group">
+              <span class="field-group-lbl">Sinal Dir.</span>
+              <input class="ins-f" type="number" id="ct-forwardSign"  step="1" min="-1" max="1" oninput="I.applyControllable()" title="1=normal -1=invertido">
+            </div>
+          <div class="field-group"><span class="field-group-lbl">Câm. Y</span><input class="ins-f" type="number" id="ct-camY"         step="0.1"  oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. D</span><input class="ins-f" type="number" id="ct-camD"         step="0.5"  oninput="I.applyControllable()"></div>
+        </div>
+
+        <div style="padding:0 10px;display:none" id="ct-stats-horse">
+          <div class="sep-lbl" style="padding:8px 0 3px">Stats — Cavalo</div>
+          <div class="field-group"><span class="field-group-lbl">Trote</span><input class="ins-f" type="number" id="ct-trotSpeed"  step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Galope</span><input class="ins-f" type="number" id="ct-gallopSpeed" step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group">
+              <span class="field-group-lbl">Aceleração</span>
+              <input class="ins-f" type="number" id="ct-accel"      step="0.5" oninput="I.applyControllable()">
+            </div>
+          <div class="field-group"><span class="field-group-lbl">Pulo</span><input class="ins-f" type="number" id="ct-jumpForce"  step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Curva</span><input class="ins-f" type="number" id="ct-turnRate"   step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. Y</span><input class="ins-f" type="number" id="ct-camY"       step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. D</span><input class="ins-f" type="number" id="ct-camD"       step="0.5" oninput="I.applyControllable()"></div>
+        </div>
+
+        <div style="padding:0 10px;display:none" id="ct-stats-bicycle">
+          <div class="sep-lbl" style="padding:8px 0 3px">Stats — Bicicleta</div>
+          <div class="field-group">
+              <span class="field-group-lbl">Vel. Máx.</span>
+              <input class="ins-f" type="number" id="ct-topSpeed" step="0.5" oninput="I.applyControllable()">
+            </div>
+          <div class="field-group">
+              <span class="field-group-lbl">Aceleração</span>
+              <input class="ins-f" type="number" id="ct-accel"  step="0.5" oninput="I.applyControllable()">
+            </div>
+          <div class="field-group"><span class="field-group-lbl">Frenagem</span><input class="ins-f" type="number" id="ct-brake"  step="0.5" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Drag</span><input class="ins-f" type="number" id="ct-drag"   step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Max Lean</span><input class="ins-f" type="number" id="ct-maxLean" step="0.05" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. Y</span><input class="ins-f" type="number" id="ct-camY"   step="0.1" oninput="I.applyControllable()"></div>
+          <div class="field-group"><span class="field-group-lbl">Câm. D</span><input class="ins-f" type="number" id="ct-camD"   step="0.5" oninput="I.applyControllable()"></div>
         </div>
 
         <div class="sep-lbl">Keybindings <span style="color:var(--text3);font-weight:400;font-size:9px">(clique para reatribuir)</span></div>
@@ -274,14 +505,139 @@
         <div id="anim-state-map" style="padding:0 10px 6px;max-height:200px;overflow-y:auto"></div>
         <div class="sep-lbl">Configurações</div>
         <div style="padding:0 10px 10px">
-          <div class="stat-row">
-            <span class="stat-lbl">Crossfade</span>
-            <input class="stat-f" type="number" id="anim-fade" value="0.25" step="0.05" min="0" max="2" oninput="AP.applyFade()">
-          </div>
+          <div class="field-group"><span class="field-group-lbl">Crossfade</span><input class="ins-f" type="number" id="anim-fade" value="0.25" step="0.05" min="0" max="2" oninput="AP.applyFade()"></div>
           <button class="ins-btn" style="margin-top:4px" onclick="AP.refresh()">↺ Re-auto-mapear</button>
         </div>
       </div>
     </div>
+
+    <!-- ── EFFECTS ── -->
+    <div class="tab-panel" id="tab-effects">
+      <div class="sep-lbl">Efeitos Especiais</div>
+      <div style="padding:0 10px 6px">
+        <div class="ins-note">Selecione um objeto na hierarquia e atribua efeitos contínuos ou de evento.</div>
+      </div>
+      <div class="sep-lbl">Efeito Contínuo (looped)</div>
+      <div style="padding:0 10px 8px">
+        <div class="field-group">
+          <span class="field-group-lbl">Efeito</span>
+          <select class="ins-sel" id="fx-loop-select" style="height:26px;width:100%">
+            <option value="">— selecione —</option>
+            <option value="fire">🔥 Fogo</option>
+            <option value="smoke">💨 Fumaça</option>
+            <option value="sparks">✨ Faíscas</option>
+            <option value="dust">🌫 Poeira</option>
+          </select>
+        </div>
+        <div class="field-group"><span class="field-group-lbl">Altura Y</span><input class="ins-f" type="number" id="fx-offset-y" value="0.5" step="0.1"></div>
+        <div class="ins-2col" style="margin-top:4px">
+          <button class="ins-btn grn" onclick="E.attachFX()">＋ Adicionar</button>
+          <button class="ins-btn red"  onclick="E.detachFX()">✕ Remover</button>
+        </div>
+        <div id="fx-active-list" style="margin-top:6px;font-size:10px;color:var(--text3)">Nenhum efeito ativo</div>
+      </div>
+      <div class="sep-lbl">Efeito de Evento</div>
+      <div style="padding:0 10px 10px">
+        <div class="field-group">
+          <span class="field-group-lbl">Efeito</span>
+          <select class="ins-sel" id="fx-event-select" style="height:26px;width:100%">
+            <option value="explosion">💥 Explosão</option>
+            <option value="blood">🩸 Sangue</option>
+            <option value="sparks">✨ Faíscas</option>
+            <option value="muzzle">💥 Muzzle Flash</option>
+            <option value="dust">🌫 Poeira</option>
+          </select>
+        </div>
+        <button class="ins-btn pri" style="margin-top:4px" onclick="E.spawnFX()">▶ Preview Efeito</button>
+        <div class="ins-note" style="margin-top:8px">
+          Para disparar via script:<br>
+          <code style="color:var(--accent)">Effects.spawn('explosion', pos)</code><br>
+          <code style="color:var(--accent)">Effects.spawn('blood', pos, {scale:2})</code><br>
+          <code style="color:var(--accent)">Effects.onExplosion(pos, scale)</code>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── CAMERA ── -->
+    <div class="tab-panel" id="tab-camera">
+      <div class="sep-lbl">Template de Câmera</div>
+      <div style="padding:0 10px 6px">
+        <select class="ins-sel" id="cam-template" onchange="E.applyCamTemplate(this.value)" style="width:100%;margin-bottom:6px">
+          <option value="GTA V">GTA V</option>
+          <option value="RDR2">RDR2 / Horizon</option>
+          <option value="Zelda BOTW">Zelda / BOTW</option>
+          <option value="Souls / DS">Souls / Dark Souls</option>
+          <option value="Over-shoulder">Over-shoulder (RE4)</option>
+          <option value="Top-down">Top-down</option>
+          <option value="Vehicle">Veículo</option>
+          <option value="Aéreo">Aéreo</option>
+          <option value="Custom">Custom</option>
+        </select>
+      </div>
+      <div class="sep-lbl">Parâmetros</div>
+      <div style="padding:0 10px 8px">
+        <div class="field-group"><span class="field-group-lbl">Dist. (m)</span><input class="ins-f" type="number" id="cam-dist"  step="0.5" min="1" max="30"  oninput="E.applyCamParam()"></div>
+        <div class="field-group"><span class="field-group-lbl">Altura (m)</span><input class="ins-f" type="number" id="cam-height" step="0.1" min="0" max="15"  oninput="E.applyCamParam()"></div>
+        <div class="field-group"><span class="field-group-lbl">Pitch base</span><input class="ins-f" type="number" id="cam-pitch"  step="0.02" min="-1.4" max="0.5" oninput="E.applyCamParam()"></div>
+        <div class="field-group">
+              <span class="field-group-lbl">Suavização</span>
+              <input class="ins-f" type="number" id="cam-lerp"   step="0.01" min="0.01" max="1" oninput="E.applyCamParam()">
+            </div>
+        <div class="field-group"><span class="field-group-lbl">FOV (°)</span><input class="ins-f" type="number" id="cam-fov"    step="1" min="30" max="110"  oninput="E.applyCamParam()"></div>
+      </div>
+      <div class="sep-lbl">Configuração de Veículo / Moto</div>
+      <div style="padding:8px 8px 12px;display:flex;flex-direction:column;gap:10px">
+
+        <div class="ins-note" style="margin-bottom:2px">
+          Selecione o veículo na hierarquia e ajuste as direções conforme o modelo 3D.
+        </div>
+
+        <!-- Frente / Trás -->
+        <div>
+          <div class="field-group-lbl" style="margin-bottom:5px">⬆ Frente / Trás (W/S)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+            <button id="veh-fwd-normal" class="ins-btn active"
+              onclick="E.applyVehDirection('1')"
+              style="flex-direction:column;height:44px;gap:2px">
+              <span style="font-size:13px">↑</span>
+              <span style="font-size:9px;opacity:.7">W = Frente</span>
+            </button>
+            <button id="veh-fwd-invert" class="ins-btn"
+              onclick="E.applyVehDirection('-1')"
+              style="flex-direction:column;height:44px;gap:2px">
+              <span style="font-size:13px">↓</span>
+              <span style="font-size:9px;opacity:.7">W = Trás (corrigir)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Esquerda / Direita -->
+        <div>
+          <div class="field-group-lbl" style="margin-bottom:5px">↔ Esquerda / Direita (A/D)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+            <button id="veh-steer-normal" class="ins-btn active"
+              onclick="E.applyVehSteering('1')"
+              style="flex-direction:column;height:44px;gap:2px">
+              <span style="font-size:13px">↕</span>
+              <span style="font-size:9px;opacity:.7">A/D = Normal</span>
+            </button>
+            <button id="veh-steer-invert" class="ins-btn"
+              onclick="E.applyVehSteering('-1')"
+              style="flex-direction:column;height:44px;gap:2px">
+              <span style="font-size:13px">↕</span>
+              <span style="font-size:9px;opacity:.7">A/D = Invertido</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="ins-note">
+          <b style="color:var(--text2)">Dica:</b> se o modelo gira para o lado errado ao virar, pressione "A/D = Invertido".
+          Se anda para trás ao pressionar W, pressione "W = Trás".
+        </div>
+      </div>
+    </div>
+
 
     <!-- ── SCRIPTS ── -->
     <div class="tab-panel" id="tab-scripts">
@@ -300,15 +656,28 @@
   </div><!-- /panel-right -->
 </div><!-- /main -->
 
+<!-- Preview loading screen -->
+<div id="pv-loading" style="display:none;position:fixed;inset:0;background:#0d0e11;z-index:500;flex-direction:column;align-items:center;justify-content:center">
+  <div style="font-family:monospace;color:#5b8cff;font-size:22px;font-weight:700;margin-bottom:12px">⬡ EngineLeo</div>
+  <div style="font-family:monospace;color:#7d8499;font-size:13px;margin-bottom:28px" id="pv-load-msg">Preparando preview...</div>
+  <div style="width:240px;height:5px;background:#21252e;border-radius:3px;overflow:hidden">
+    <div id="pv-load-bar" style="height:100%;background:#5b8cff;border-radius:3px;width:0%;transition:width .25s"></div>
+  </div>
+  <div style="font-family:monospace;color:#3d4455;font-size:10px;margin-top:10px" id="pv-load-detail"></div>
+</div>
+
 <!-- SCRIPT EDITOR OVERLAY -->
 <div id="sc-overlay">
   <div id="sc-bar">
-    <span id="sc-name">script.js</span>
-    <span id="sc-status">● salvo</span>
+    <span id="sc-name">Script</span>
+    <span id="sc-status"></span>
+    <button class="sc-bar-btn" id="sc-fb" onclick="E.applyScript()">Compilar</button>
     <button class="sc-bar-btn" id="sc-apply" onclick="E.applyScript()">✓ Aplicar</button>
-    <button class="sc-bar-btn" id="sc-close"  onclick="E.closeSCEditor()">✕ Fechar</button>
+    <button class="sc-bar-btn" id="sc-close" onclick="E.closeSCEditor()">✕ Fechar</button>
   </div>
-  <div id="monaco-wrap"></div>
+  <div id="monaco-wrap">
+    <div id="mc-actual" style="width:100%;height:100%"></div>
+  </div>
 </div>
 
 <!-- MODAL -->
@@ -320,24 +689,40 @@
   </div>
 </div>
 
+<!-- Transform HUD (optional position display) -->
+<div id="xform-hud" style="display:none;position:fixed;bottom:36px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);color:#c8cdd8;font-family:monospace;font-size:11px;padding:4px 12px;border-radius:4px;pointer-events:none;border:1px solid #2e3240"></div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
 <!-- ES Module bootstrap -->
 <script type="module">
-  import * as Main      from './src/main.js';
-  import * as Inspector from './src/inspector.js';
-  import * as AnimPanel from './src/animationPanel.js';
+  try {
+    const [Main, Inspector, AnimPanel] = await Promise.all([
+      import('./src/main.js'),
+      import('./src/inspector.js'),
+      import('./src/animationPanel.js'),
+    ]);
 
-  window.E  = Main;
-  window.I  = Inspector;
-  window.AP = AnimPanel;
+    window.E  = Main;
+    window.I  = Inspector;
+    window.AP = AnimPanel;
 
-  window.togVis       = Main.togVis;
-  window.startListen  = Main.startListen;
-  window.openSCEditor = Main.openSCEditor;
-  window.rmScript     = Main.rmScript;
-  window.animPreview  = AnimPanel.preview;
-  window.animMapState = AnimPanel.mapState;
+    window.togVis        = Main.togVis;
+    window.startListen   = Main.startListen;
+    window.openSCEditor  = Main.openSCEditor;
+    window.rmScript      = Main.rmScript;
+    window.animPreview   = AnimPanel.preview;
+    window.animMapState  = AnimPanel.mapState;
 
-  window._onEntAnimLoaded = () => { window.I?.refresh(); };
+    window._onEntAnimLoaded = () => { window.I?.refresh(); };
+
+    console.log('[EngineLeo] Módulos carregados:', Object.keys(Main).length, 'exports');
+  } catch(err) {
+    console.error('[EngineLeo] ERRO ao carregar módulos:', err);
+    document.body.innerHTML += `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#ff5c5c;color:#fff;padding:20px;border-radius:8px;font-family:monospace;z-index:9999;max-width:80vw">
+      <b>Erro ao inicializar EngineLeo</b><br><small>${err.message}</small></div>`;
+  }
 </script>
 </body>
 </html>

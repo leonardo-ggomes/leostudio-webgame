@@ -1,11 +1,11 @@
 // ================================================================
 // gizmos.js — Transform gizmos + nav orientation gizmo
 // ================================================================
-import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+import * as THREE from 'three';
 import * as S from './state.js';
 
 const VP  = document.getElementById('vp');
-const navCvs = document.getElementById('nav-cvs');
+const navCvs = document.getElementById('nav-gizmo');
 const navCtx = navCvs.getContext('2d');
 
 export const gGrp = new THREE.Group();
@@ -14,6 +14,9 @@ S.scene.add(gGrp);
 let dragging = false, axis = null;
 let dragStart = new THREE.Vector3(), dragPlane = new THREE.Plane();
 const RAY = new THREE.Raycaster(), MV = new THREE.Vector2();
+
+// 2D mouse tracking for rotate (more reliable than 3D plane intersection)
+let _prevMouseX = 0, _prevMouseY = 0;
 
 export function build() {
   gGrp.clear();
@@ -62,6 +65,8 @@ export function onMouseDown(e, selEnt, orb) {
 
   dragging = true; orb.enabled = false;
   axis = hits[0].object.parent?.userData.axis || hits[0].object.userData.axis;
+  _prevMouseX = e.clientX;
+  _prevMouseY = e.clientY;
   const cd = new THREE.Vector3(); S.edCam.getWorldDirection(cd);
   dragPlane.setFromNormalAndCoplanarPoint(cd, selEnt.mesh.position);
   const pt = new THREE.Vector3(); RAY.ray.intersectPlane(dragPlane, pt);
@@ -75,6 +80,28 @@ export function onMouseMove(e, selEnt) {
   MV.x = ((e.clientX-r.left)/r.width)*2-1;
   MV.y = -((e.clientY-r.top)/r.height)*2+1;
   RAY.setFromCamera(MV, S.edCam);
+
+  if (S.gizmoMode === 'rotate') {
+    // Use 2D mouse delta directly — more reliable than 3D plane intersection
+    const dx = e.clientX - _prevMouseX;
+    const dy = e.clientY - _prevMouseY;
+    _prevMouseX = e.clientX;
+    _prevMouseY = e.clientY;
+
+    // Sensitivity: pixels → radians
+    const SENS = 0.012;
+    let ang = (dx + dy) * SENS;
+    if (S.snap.angle) ang = Math.round(ang / (Math.PI/12)) * (Math.PI/12);
+
+    const a = axis;
+    if      (a === 'x') selEnt.mesh.rotation.x += ang;
+    else if (a === 'y') selEnt.mesh.rotation.y += ang;
+    else                selEnt.mesh.rotation.z += ang;
+
+    _updateHUD(selEnt, 'rot');
+    return;
+  }
+
   const pt = new THREE.Vector3();
   if (!RAY.ray.intersectPlane(dragPlane, pt)) return;
 
@@ -90,34 +117,40 @@ export function onMouseMove(e, selEnt) {
       selEnt.mesh.position.y = Math.round(selEnt.mesh.position.y);
       selEnt.mesh.position.z = Math.round(selEnt.mesh.position.z);
     }
+    _updateHUD(selEnt, 'pos');
   } else if (S.gizmoMode === 'scale') {
     const s = 1 + (delta.x + delta.y) * .5;
     if      (a==='x') selEnt.mesh.scale.x = Math.max(.01, selEnt.mesh.scale.x * s);
     else if (a==='y') selEnt.mesh.scale.y = Math.max(.01, selEnt.mesh.scale.y * s);
     else if (a==='z') selEnt.mesh.scale.z = Math.max(.01, selEnt.mesh.scale.z * s);
     else selEnt.mesh.scale.multiplyScalar(Math.max(.5, Math.min(2, 1 + (delta.x+delta.y)*.3)));
-  } else if (S.gizmoMode === 'rotate') {
-    const ang = (delta.x + delta.y) * .8;
-    const sn  = S.snap.angle ? Math.round(ang/(Math.PI/12))*(Math.PI/12) : ang;
-    if      (a==='x') selEnt.mesh.rotation.x += sn * .05;
-    else if (a==='y') selEnt.mesh.rotation.y += sn * .05;
-    else              selEnt.mesh.rotation.z += sn * .05;
+    _updateHUD(selEnt, 'scl');
   }
 
   RAY.ray.intersectPlane(dragPlane, pt);
   dragStart.copy(pt).sub(selEnt.mesh.position);
+}
 
-  // HUD
+function _updateHUD(selEnt, mode) {
   const hud = document.getElementById('xform-hud');
-  const p = selEnt.mesh.position;
-  hud.textContent = `X:${p.x.toFixed(2)} Y:${p.y.toFixed(2)} Z:${p.z.toFixed(2)}`;
-  hud.classList.add('on');
+  if (!hud) return;
+  const m = selEnt.mesh;
+  const toDeg = v => (v * 180 / Math.PI).toFixed(1) + '°';
+  if (mode === 'pos') {
+    hud.textContent = `X:${m.position.x.toFixed(2)}  Y:${m.position.y.toFixed(2)}  Z:${m.position.z.toFixed(2)}`;
+  } else if (mode === 'rot') {
+    hud.textContent = `X:${toDeg(m.rotation.x)}  Y:${toDeg(m.rotation.y)}  Z:${toDeg(m.rotation.z)}`;
+  } else {
+    hud.textContent = `X:${m.scale.x.toFixed(2)}  Y:${m.scale.y.toFixed(2)}  Z:${m.scale.z.toFixed(2)}`;
+  }
+  hud.style.display = 'block';
 }
 
 export function onMouseUp(orb) {
   if (!dragging) return;
   dragging = false; orb.enabled = true;
-  document.getElementById('xform-hud').classList.remove('on');
+  const hud = document.getElementById('xform-hud');
+  if (hud) hud.style.display = 'none';
 }
 
 // --- Nav gizmo (orientation cube) ---
