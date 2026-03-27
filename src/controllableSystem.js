@@ -57,7 +57,8 @@ export const DEFAULT_STATS = {
     // forwardSign: 1 = W goes forward, -1 = W goes backward (invert GLB direction)
     topSpeed: 20, reverseSpeed: 4, accel: 3, reverseAccel: 5, brake: 4,
     steerMax: 0.6, steerReturn: 6, turnRate: 2.2, drag: 0.5,
-    forwardSign: 1,   // ← NEW: flip to -1 if model faces wrong way
+    forwardSign: 1,   // 1=normal, -1=model faces wrong way (inverts fwd/back)
+    steerSign:   1,   // 1=normal, -1=inverts left/right steering
     camY: 2.8, camD: 7.5,
   },
   helicopter: {
@@ -75,7 +76,8 @@ export const DEFAULT_STATS = {
     topSpeed: 28, accel: 4, brake: 5, reverseSpeed: 0, reverseAccel: 0,
     steerMax: 0.7, steerReturn: 7, turnRate: 2.5, drag: 0.4,
     turboMult: 1.6, maxLean: 0.4, maxWheelie: 0.2,
-    forwardSign: 1,
+    forwardSign: 1,   // 1=normal, -1=inverts fwd/back
+    steerSign:   1,   // 1=normal, -1=inverts left/right
     camY: 1.8, camD: 5,
   },
   horse: {
@@ -167,45 +169,58 @@ export function update(dt) {
   _activeEntity.animMgr?.update(dt);
 }
 
-// ---- Camera — uses activeCamSettings for distance/height/lerp ----
+// ---- Camera — uses activeCamSettings + ADS modifier ----
 function _updateCamera(dt) {
   const cam = S.gCam;
   const ent = _activeEntity;
   if (!ent?.mesh) return;
 
-  const cs = activeCamSettings;
-
-  // Per-entity overrides (camY/camD from stats)
+  const cs       = activeCamSettings;
   const entStats = ent.controllable?.stats;
-  const dist  = (entStats?.camD ?? cs.camD);
-  const baseY = (entStats?.camY ?? cs.camY);
 
-  const offset = _controller.getCameraOffset(ent);
-  const yaw    = offset.yawOffset;
+  // ADS modifier from combat system
+  const adsMod  = Combat.getADSCameraModifier(ent);
 
-  // Effective pitch: player mouse + template base
-  const pitch  = S.camPitch + (cs.camPitchBase || -0.2);
-  const clampedPitch = Math.max(-1.4, Math.min(0.6, pitch));
+  const baseDist = entStats?.camD ?? cs.camD;
+  const baseY    = entStats?.camY ?? cs.camY;
+  const dist     = baseDist * adsMod.distMult;
+  const height   = baseY   * adsMod.heightMult;
 
-  // Camera position offset from entity
+  const offset   = _controller.getCameraOffset(ent);
+  const yaw      = offset.yawOffset;
+  const pitch    = S.camPitch + (cs.camPitchBase || -0.2);
+  const cPitch   = Math.max(-1.4, Math.min(0.6, pitch));
+
+  // Base camera offset (behind player)
   const co = new THREE.Vector3(
-    Math.sin(yaw) * Math.cos(clampedPitch) * dist,
-    baseY - Math.sin(clampedPitch) * dist * 0.4,
-    Math.cos(yaw) * Math.cos(clampedPitch) * dist,
+    Math.sin(yaw) * Math.cos(cPitch) * dist,
+    height - Math.sin(cPitch) * dist * 0.4,
+    Math.cos(yaw) * Math.cos(cPitch) * dist,
   );
 
-  // Look target = entity center + upward bias
-  const lookTarget = ent.mesh.position.clone().add(new THREE.Vector3(0, baseY * 0.6, 0));
+  // ADS shoulder offset — deslocamento lateral perpendicular ao yaw
+  // GTA V desloca para o ombro direito
+  if (adsMod.shoulderOffset > 0.001) {
+    const rightDir = new THREE.Vector3(
+      Math.cos(yaw),  0,
+      -Math.sin(yaw)
+    );
+    co.addScaledVector(rightDir, adsMod.shoulderOffset);
+  }
+
+  // Look target — sempre o centro do player (não o ponto de mira)
+  // Isso garante que o centro da tela seja exatamente para onde o jogador olha
+  const lookTarget = ent.mesh.position.clone().add(new THREE.Vector3(0, height * 0.6, 0));
   const desiredPos = ent.mesh.position.clone().add(co);
 
-  // Smooth camera with configurable lerp speed
   const lerp = cs.camLerp || 0.10;
   cam.position.lerp(desiredPos, Math.min(1, lerp * 60 * dt));
   cam.lookAt(lookTarget);
 
-  // Apply FOV
-  if (cs.camFOV && cam.fov !== cs.camFOV) {
-    cam.fov += (cs.camFOV - cam.fov) * Math.min(1, 5 * dt);
+  // FOV — fecha levemente no ADS
+  const targetFOV = (cs.camFOV || 65) - adsMod.shoulderOffset * 8;
+  if (Math.abs(cam.fov - targetFOV) > 0.1) {
+    cam.fov += (targetFOV - cam.fov) * Math.min(1, 8 * dt);
     cam.updateProjectionMatrix();
   }
 }

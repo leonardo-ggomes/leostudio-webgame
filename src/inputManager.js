@@ -9,10 +9,12 @@ const held = new Set();
 let mouseButtons = 0; // bitmask: bit0=LMB, bit1=MMB, bit2=RMB
 
 // Raw listeners — always active
-window.addEventListener('keydown', e => held.add(e.code));
-window.addEventListener('keyup',   e => held.delete(e.code));
-document.getElementById('vp').addEventListener('mousedown', e => { mouseButtons |=  (1 << e.button); });
-document.getElementById('vp').addEventListener('mouseup',   e => { mouseButtons &= ~(1 << e.button); });
+window.addEventListener('keydown', e => { held.add(e.code); });
+window.addEventListener('keyup',   e => { held.delete(e.code); });
+
+// Mouse buttons: listen on DOCUMENT so pointer-lock doesn't swallow events
+document.addEventListener('mousedown', e => { mouseButtons |=  (1 << e.button); });
+document.addEventListener('mouseup',   e => { mouseButtons &= ~(1 << e.button); });
 
 /** Build an InputState from a keybind map */
 export function sample(keybinds) {

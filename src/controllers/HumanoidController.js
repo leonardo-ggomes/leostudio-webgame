@@ -1,5 +1,5 @@
 // ================================================================
-// controllers/HumanoidController.js
+// controllers/HumanoidController.js — GTA V-style movement + aim
 // ================================================================
 import * as THREE from 'three';
 import * as S from '../state.js';
@@ -7,29 +7,21 @@ import * as S from '../state.js';
 const GRAV          = -9.81;
 const LAND_DURATION = 0.2;
 const AIR_DRAG      = 2.0;
-
-// ── Gravidade assimétrica (estilo GTA / Souls) ──────────────────
-// FALL_MULT: multiplicador aplicado à gravidade durante a descida.
-//   1.0 = gravidade simétrica (flutua)
-//   2.0 = cai 2× mais rápido que sobe  ← padrão natural
-//   3.0 = cai muito rápido (pesado, Souls-like)
-// LOW_JUMP_MULT: multiplicador extra quando solta Space antes do pico.
-//   Permite pulos curtos (tap) vs pulos altos (hold).
-const FALL_MULT      = 2.2;
-const LOW_JUMP_MULT  = 3.5;
+const FALL_MULT     = 2.2;
+const LOW_JUMP_MULT = 3.5;
 
 const STATE = { IDLE:'idle', WALK:'walk', RUN:'run', JUMP:'jump', FALL:'fall', LAND:'land' };
 
 export class HumanoidController {
   onEnter(entity) {
     this._vel          = new THREE.Vector3();
-    // Start grounded only if actually on or near the ground
     const box = entity.mesh ? new THREE.Box3().setFromObject(entity.mesh) : null;
     this._grounded     = box ? box.min.y <= 0.2 : false;
     this._wasGrounded  = this._grounded;
     this._state        = this._grounded ? STATE.IDLE : STATE.FALL;
     this._jumpConsumed = false;
     this._landTimer    = 0;
+    this._isAiming     = false;
   }
 
   onExit(entity) {
@@ -44,10 +36,9 @@ export class HumanoidController {
     const m  = entity.mesh;
     if (!m || !ch) return;
 
-    // ---- Salvar estado anterior do chão ----
     this._wasGrounded = this._grounded;
+    this._isAiming    = input.aim;
 
-    // ---- Intenção de movimento ----
     const fwd = new THREE.Vector3(-Math.sin(S.camYaw), 0, -Math.cos(S.camYaw));
     const rgt = new THREE.Vector3( Math.cos(S.camYaw), 0, -Math.sin(S.camYaw));
     const mv  = new THREE.Vector3();
@@ -58,59 +49,52 @@ export class HumanoidController {
     const hasInput = mv.length() > .01;
     if (hasInput) mv.normalize();
 
-    const sprinting = input.sprint && this._grounded;
-    const speed     = sprinting ? ch.stats.sprint : ch.stats.speed;
+    const sprinting = input.sprint && this._grounded && !this._isAiming;
+    const speed     = this._isAiming
+      ? ch.stats.speed * 0.4   // caminha devagar enquanto mira (GTA V)
+      : sprinting ? ch.stats.sprint : ch.stats.speed;
 
-    // ---- Velocidade XZ ----
     if (this._grounded) {
-      // No chão: aceleração normal para o target
-      const accel  = ch.stats.accel;
-      const tgtX   = hasInput ? mv.x * speed : 0;
-      const tgtZ   = hasInput ? mv.z * speed : 0;
-      this._vel.x += (tgtX - this._vel.x) * Math.min(1, accel * dt);
-      this._vel.z += (tgtZ - this._vel.z) * Math.min(1, accel * dt);
+      const accel = ch.stats.accel;
+      this._vel.x += ((hasInput ? mv.x * speed : 0) - this._vel.x) * Math.min(1, accel * dt);
+      this._vel.z += ((hasInput ? mv.z * speed : 0) - this._vel.z) * Math.min(1, accel * dt);
     } else {
-      // Bug 2 fix: no ar, APENAS aplica drag — zero influência de input
-      const drag = Math.max(0, 1 - AIR_DRAG * dt);
-      this._vel.x *= drag;
-      this._vel.z *= drag;
+      this._vel.x *= Math.max(0, 1 - AIR_DRAG * dt);
+      this._vel.z *= Math.max(0, 1 - AIR_DRAG * dt);
     }
 
-    // ---- Gravidade assimétrica ────────────────────────────────
-    // Descendo               → FALL_MULT  : queda mais rápida e natural
-    // Subindo sem Space (tap) → LOW_JUMP_MULT: pulo curto ao soltar cedo
-    // Subindo com Space hold  → gravidade normal: pulo completo
-   const gravMult = this._vel.y < 0 ? FALL_MULT
-               : (!input.jump && this._vel.y > 0) ? LOW_JUMP_MULT
-               : 1.0;
-    this._vel.y += GRAV * gravMult * dt; // aplica UMA vez
+    const gravMult = this._vel.y < 0 ? FALL_MULT
+                   : (!input.jump && this._vel.y > 0) ? LOW_JUMP_MULT : 1.0;
+    this._vel.y += GRAV * gravMult * dt;
 
-    // ---- Mover ----
     m.position.addScaledVector(this._vel, dt);
 
-    // ---- Colisão com chão ----
-    // Bug 9 fix: usar bounding box do Group para encontrar a base real do mesh
-    const box = new THREE.Box3().setFromObject(m);
-    const base = box.min.y; // ponto mais baixo do mesh no espaço do mundo
-    if (base <= 0) {
-      m.position.y -= base; // empurra de volta para y=0
+    const box  = new THREE.Box3().setFromObject(m);
+    if (box.min.y <= 0) {
+      m.position.y -= box.min.y;
       if (this._vel.y < 0) this._vel.y = 0;
       this._grounded = true;
     } else {
       this._grounded = false;
     }
 
-    // ---- Pulo com edge-detect ----
-    const jumpDown = input.jump;
-    if (jumpDown && !this._jumpConsumed && this._grounded) {
-      this._vel.y        = ch.stats.jump;
-      this._grounded     = false;
+    if (!this._jumpConsumed && this._grounded && input.jump) {
+      this._vel.y      = ch.stats.jump;
+      this._grounded   = false;
       this._jumpConsumed = true;
     }
-    if (!jumpDown) this._jumpConsumed = false;
+    if (!input.jump) this._jumpConsumed = false;
 
-    // ---- Rotação — apenas no chão e fora do landTimer ----
-    if (hasInput && this._grounded && this._landTimer <= 0) {
+    // ---- Rotação — GTA V style ----
+    if (this._isAiming) {
+      // No ADS: player SEMPRE olha na direção da câmera (trava na câmera)
+      const targetYaw = S.camYaw;
+      let df = targetYaw - m.rotation.y;
+      while (df >  Math.PI) df -= Math.PI * 2;
+      while (df < -Math.PI) df += Math.PI * 2;
+      m.rotation.y += df * Math.min(1, 20 * dt); // gira rápido para câmera
+    } else if (hasInput && this._grounded && this._landTimer <= 0) {
+      // Sem mira: rotaciona na direção do movimento
       const ta = Math.atan2(mv.x, mv.z);
       let df   = ta - m.rotation.y;
       while (df >  Math.PI) df -= Math.PI * 2;
@@ -118,14 +102,12 @@ export class HumanoidController {
       m.rotation.y += df * Math.min(1, ch.stats.rotSpd * dt);
     }
 
-    // ---- State machine de animação ----
     this._updateAnimState(dt, entity, hasInput, sprinting);
   }
 
   _updateAnimState(dt, entity, hasInput, sprinting) {
     const mgr = entity.animMgr;
 
-    // Aterrissagem
     if (!this._wasGrounded && this._grounded && this._state !== STATE.IDLE) {
       this._state     = STATE.LAND;
       this._landTimer = LAND_DURATION;
@@ -133,33 +115,21 @@ export class HumanoidController {
       return;
     }
 
-    // Contador de pouso
-    if (this._landTimer > 0) {
-      this._landTimer -= dt;
-      return;
-    }
+    if (this._landTimer > 0) { this._landTimer -= dt; return; }
 
-    // Aéreo
     if (!this._grounded) {
-      if (this._vel.y > 0) {
-        if (this._state !== STATE.JUMP) {
-          this._state = STATE.JUMP;
-          if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('jump', { once: true }); }
-        }
-      } else {
-        if (this._state !== STATE.FALL) {
-          this._state = STATE.FALL;
-          if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('fall'); }
-        }
+      const next = this._vel.y > 0 ? STATE.JUMP : STATE.FALL;
+      if (this._state !== next) {
+        this._state = next;
+        if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState(next, next === STATE.JUMP ? { once: true } : {}); }
       }
       return;
     }
 
-    // Terrestre
-    let nextState = hasInput ? (sprinting ? STATE.RUN : STATE.WALK) : STATE.IDLE;
-    if (this._state !== nextState) {
-      this._state = nextState;
-      if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState(nextState); }
+    const next = hasInput ? (sprinting ? STATE.RUN : STATE.WALK) : STATE.IDLE;
+    if (this._state !== next) {
+      this._state = next;
+      if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState(next); }
     }
   }
 
@@ -171,4 +141,5 @@ export class HumanoidController {
   getVelocity()  { return this._vel; }
   isGrounded()   { return this._grounded; }
   getAnimState() { return this._state; }
+  isAiming()     { return this._isAiming; }
 }
