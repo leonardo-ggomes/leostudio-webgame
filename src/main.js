@@ -26,18 +26,61 @@ const VP    = document.getElementById('vp');
 const pvCvs = document.getElementById('pv-canvas');
 
 S.scene.add(new THREE.GridHelper(60, 60, 0x1a1e2a, 0x141820));
-// Bug 7 fix: single canonical mouse-look handler (character.js duplicate removed)
-document.addEventListener('mousemove', e => {
-  if (!S.pvActive || !document.pointerLockElement) return;
-  S.setCamYaw(S.camYaw - e.movementX * .002);
-  S.setCamPitch(Math.max(-.7, Math.min(.6, S.camPitch - e.movementY * .002)));
+
+// ----------------------------------------------------------------
+// MOUSE LOOK — handler canônico
+//
+// Dois modos separados dentro do pointer lock:
+//   • Hip fire (RMB solto): mouse orbita a câmera livremente.
+//     O personagem NÃO gira — só a câmera se move.
+//   • ADS (RMB pressionado): mouse orbita a câmera E sinaliza
+//     para o HumanoidController girar o corpo junto.
+//     A câmera trava no ombro direito (calculado em controllableSystem).
+//
+// Não há nenhum outro listener de mousemove no projeto — este é
+// o único ponto que toca S.camYaw e S.camPitch.
+// ----------------------------------------------------------------
+let _rmbDown = false;
+
+document.addEventListener('mousedown', e => {
+  if (e.button === 2 && (S.pvActive || S.playing)) _rmbDown = true;
 });
+document.addEventListener('mouseup', e => {
+  if (e.button === 2) _rmbDown = false;
+});
+
+document.addEventListener('mousemove', e => {
+  // Só processa quando pointer lock está ativo (modo preview/play)
+  if (!document.pointerLockElement) return;
+  if (!S.pvActive && !S.playing)    return;
+
+  const dx = e.movementX * 0.002;
+  const dy = e.movementY * 0.002;
+
+  // Yaw e pitch da câmera atualizam sempre (hip fire E ADS)
+  S.setCamYaw(S.camYaw - dx);
+  S.setCamPitch(Math.max(-1.2, Math.min(0.6, S.camPitch - dy)));
+
+  // Sinaliza para o controller se o RMB está pressionado.
+  // O HumanoidController lê S.aimActive para saber se deve
+  // girar o corpo junto com a câmera.
+  S.setMouseAim(_rmbDown);
+});
+
+// Libera o flag de mira quando o pointer lock é liberado
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement) {
+    _rmbDown = false;
+    S.setMouseAim(false);
+  }
+});
+
 S.scene.add(new THREE.AxesHelper(0.6));
 S.scene.add(new THREE.AmbientLight(0x334466, 0.9));
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.3);
-sun.position.set(10, 16, 8); sun.castShadow=true;
-sun.shadow.mapSize.set(2048,2048);
-['left','right','top','bottom'].forEach((s,i)=>sun.shadow.camera[s]=[-30,30,30,-30][i]);
+sun.position.set(10, 16, 8); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+['left','right','top','bottom'].forEach((s,i) => sun.shadow.camera[s] = [-30,30,30,-30][i]);
 sun.shadow.camera.far = 100;
 S.scene.add(sun);
 
@@ -62,13 +105,11 @@ let outMesh = null;
 
 function selectEnt(ent) {
   S.setSelEnt(ent);
-  // Bug 10 fix: safely remove previous outline from any parent
   if (outMesh) {
     if (outMesh.parent) outMesh.parent.remove(outMesh);
     else S.scene.remove(outMesh);
     outMesh = null;
   }
-  // Only add outline to direct Mesh (not Group/humanoid pivot)
   if (ent?.mesh?.isMesh) {
     outMesh = new THREE.Mesh(ent.mesh.geometry, outMat);
     outMesh.scale.setScalar(1.06);
@@ -79,18 +120,22 @@ function selectEnt(ent) {
   AnimPanel.refresh();
   updStatus();
 }
-window._selectEnt = selectEnt; // used by inspector.js item click handlers
+window._selectEnt = selectEnt;
 
 VP.addEventListener('click', e => {
-  if (e.button!==0 || Gizmos.isDragging() || S.pvActive) return;
+  if (e.button !== 0 || Gizmos.isDragging() || S.pvActive) return;
   const r = VP.getBoundingClientRect();
-  MV.x=((e.clientX-r.left)/r.width)*2-1; MV.y=-((e.clientY-r.top)/r.height)*2+1;
+  MV.x = ((e.clientX - r.left) / r.width)  *  2 - 1;
+  MV.y = -((e.clientY - r.top) / r.height) *  2 + 1;
   RAY.setFromCamera(MV, S.edCam);
-  const meshes = S.entities.filter(e=>e.mesh?.isMesh).map(e=>e.mesh);
-  const hits = RAY.intersectObjects(meshes, true);
+  const meshes = S.entities.filter(e => e.mesh?.isMesh).map(e => e.mesh);
+  const hits   = RAY.intersectObjects(meshes, true);
   if (hits.length) {
-    const obj = hits[0].object;
-    const found = S.entities.find(e => e.mesh===obj || (e.mesh.isGroup && e.mesh.children.some(c=>c===obj||c.children?.includes(obj))));
+    const obj   = hits[0].object;
+    const found = S.entities.find(e =>
+      e.mesh === obj ||
+      (e.mesh.isGroup && e.mesh.children.some(c => c === obj || c.children?.includes(obj)))
+    );
     if (found) selectEnt(found);
   } else selectEnt(null);
 });
@@ -99,7 +144,7 @@ VP.addEventListener('click', e => {
 // GIZMO EVENTS
 // ----------------------------------------------------------------
 Gizmos.build();
-VP.addEventListener('mousedown',   e => { if (Gizmos.onMouseDown(e, S.selEnt, orb)) e.stopPropagation(); });
+VP.addEventListener('mousedown',    e => { if (Gizmos.onMouseDown(e, S.selEnt, orb)) e.stopPropagation(); });
 window.addEventListener('mousemove', e => { Gizmos.onMouseMove(e, S.selEnt); if (Gizmos.isDragging()) Inspector.refreshXf(); });
 window.addEventListener('mouseup',   () => Gizmos.onMouseUp(orb));
 
@@ -114,20 +159,18 @@ export function togglePlay() {
     Physics.resetVelocities();
     S.entities.forEach(ent => {
       ScriptEd.startAll(ent);
-      // Bug 8 fix: reset currentState + lock so setState always fires
       if (ent.animMgr) {
         ent.animMgr.currentState = null;
         ent.animMgr._locked = false;
         ent.animMgr.setState('idle');
       }
     });
-    btn.textContent='■ Stop'; btn.classList.replace('play','stop-mode');
+    btn.textContent = '■ Stop'; btn.classList.replace('play', 'stop-mode');
     document.getElementById('play-badge').classList.add('on');
   } else {
     Physics.restoreSnapshot(S.playSnap);
-    // Stop all animations on Stop
     S.entities.forEach(ent => { if (ent.animMgr) ent.animMgr.stopAll(); });
-    btn.textContent='▶ Play'; btn.classList.replace('stop-mode','play');
+    btn.textContent = '▶ Play'; btn.classList.replace('stop-mode', 'play');
     document.getElementById('play-badge').classList.remove('on');
     Inspector.refreshXf();
   }
@@ -135,27 +178,37 @@ export function togglePlay() {
 }
 
 // ----------------------------------------------------------------
-// PREVIEW — possess selected (or first controllable) entity
+// PREVIEW
 // ----------------------------------------------------------------
 export async function togglePreview(targetEnt) {
   if (!S.pvActive) {
     const ent = targetEnt
       || (S.selEnt?.controllable ? S.selEnt : null)
       || S.entities.find(e => e.controllable);
-    if (!ent) { showModal('Preview','Adicione um Humanoid ou Veículo na cena.',[{label:'OK',cls:''}]); return; }
+    if (!ent) {
+      showModal('Preview', 'Adicione um Humanoid ou Veículo na cena.', [{ label:'OK', cls:'' }]);
+      return;
+    }
 
-    // ---- Loading screen ----
     await _runPreviewLoader(ent);
 
     Ctrl.possess(ent);
     S.setPvChar(ent);
-    S.setActiveCam(S.gCam); S.setPvActive(true);
+    S.setActiveCam(S.gCam);
+    S.setPvActive(true);
+
+    // Garante que mouseAim começa desativado — jogador não entra mirando
+    S.setMouseAim(false);
+    _rmbDown = false;
+
     document.getElementById('pv-badge').classList.add('on');
     document.getElementById('play-badge').classList.remove('on');
     document.getElementById('pv-canvas').classList.add('on');
     document.getElementById('btn-pv').classList.add('active');
     Gizmos.gGrp.visible = false;
     if (document.activeElement) document.activeElement.blur();
+
+    // Pointer lock — necessário para capturar movementX/Y do mouse
     document.getElementById('vp').requestPointerLock();
   } else {
     _exitPreview();
@@ -171,13 +224,12 @@ async function _runPreviewLoader(ent) {
   if (!overlay) return;
 
   overlay.style.display = 'flex';
-  const setBar = v => { if(barEl) barEl.style.width = (v*100).toFixed(0)+'%'; };
-  const setMsg = (m,d='') => {
-    if(msgEl)    msgEl.textContent    = m;
-    if(detailEl) detailEl.textContent = d;
+  const setBar = v => { if (barEl) barEl.style.width = (v * 100).toFixed(0) + '%'; };
+  const setMsg = (m, d = '') => {
+    if (msgEl)    msgEl.textContent    = m;
+    if (detailEl) detailEl.textContent = d;
   };
 
-  // Count entities that need loading
   const toLoad = S.entities.filter(e => e.type === 'humanoid' && !e.animMgr);
   const total  = Math.max(1, toLoad.length + S.entities.length);
   let   done   = 0;
@@ -186,20 +238,17 @@ async function _runPreviewLoader(ent) {
   setBar(0.05);
   await new Promise(r => setTimeout(r, 80));
 
-  // Check each entity
   for (const e of S.entities) {
     done++;
     setBar(0.1 + (done / total) * 0.7);
     setMsg('Preparando: ' + e.name, e.type);
-    await new Promise(r => setTimeout(r, 16)); // let renderer breathe
+    await new Promise(r => setTimeout(r, 16));
   }
 
-  // Wait for any pending GLB loads (animMgr not yet set)
   const unloaded = S.entities.filter(e => e.type === 'humanoid' && !e.animMgr);
   if (unloaded.length) {
-    setMsg('Aguardando modelos 3D...', unloaded.map(e=>e.name).join(', '));
+    setMsg('Aguardando modelos 3D...', unloaded.map(e => e.name).join(', '));
     setBar(0.85);
-    // Wait up to 4s for GLBs
     let waited = 0;
     while (unloaded.some(e => !e.animMgr) && waited < 4000) {
       await new Promise(r => setTimeout(r, 100));
@@ -212,10 +261,14 @@ async function _runPreviewLoader(ent) {
   await new Promise(r => setTimeout(r, 350));
   overlay.style.display = 'none';
 }
+
 function _exitPreview() {
   Ctrl.possess(null);
   S.setPvChar(null);
-  S.setPvActive(false); S.setActiveCam(S.edCam);
+  S.setPvActive(false);
+  S.setActiveCam(S.edCam);
+  S.setMouseAim(false);
+  _rmbDown = false;
   document.getElementById('pv-badge').classList.remove('on');
   document.getElementById('pv-canvas').classList.remove('on');
   document.getElementById('btn-pv').classList.remove('active');
@@ -226,11 +279,9 @@ export function possessSelected() {
   const ent = S.selEnt;
   if (!ent?.controllable) { showToast('Selecione uma entidade com Controller primeiro.'); return; }
   if (S.pvActive) {
-    // Already in preview — switch to this entity
     Ctrl.possess(ent);
     S.setPvChar(ent);
   } else {
-    // Enter preview focused on this entity
     togglePreview(ent);
   }
 }
@@ -250,7 +301,7 @@ export function loadCustomGLB() {
   input.type = 'file'; input.accept = '.glb,.gltf';
   input.onchange = async e => {
     const file = e.target.files[0]; if (!file) return;
-    const url = URL.createObjectURL(file);
+    const url  = URL.createObjectURL(file);
     showToast('Carregando ' + file.name + '...');
     ent._glbSrc = url.startsWith('blob:') ? (ent._glbSrc || 'assets/model.glb') : url;
     await Ents.loadControllableGLB(ent, url);
@@ -267,7 +318,6 @@ function _showCtrlStats(type) {
     if (el) el.style.display = type === t ? '' : 'none';
   });
 }
-// Expose to inspector.js refreshControllable
 window._showCtrlStats = _showCtrlStats;
 
 // ----------------------------------------------------------------
@@ -276,58 +326,55 @@ window._showCtrlStats = _showCtrlStats;
 export function addObj(type) {
   document.getElementById('add-menu').classList.remove('open');
   const ent = Ents.createEnt(type);
-  ent.mesh.position.set((Math.random()-.5)*4, type==='plane'?0:1, (Math.random()-.5)*4);
+  ent.mesh.position.set((Math.random() - .5) * 4, type === 'plane' ? 0 : 1, (Math.random() - .5) * 4);
   selectEnt(ent);
   if (ent.controllable) { Inspector.switchTab('ctrl'); _showCtrlStats(ent.controllable.type); }
   updStatus();
 }
 
 export function toggleAddMenu(e) {
-  const menu=document.getElementById('add-menu'), btn=document.getElementById('btn-add');
-  const r=btn.getBoundingClientRect();
-  menu.style.top=r.bottom+4+'px'; menu.style.left=r.left+'px';
+  const menu = document.getElementById('add-menu'), btn = document.getElementById('btn-add');
+  const r = btn.getBoundingClientRect();
+  menu.style.top  = r.bottom + 4 + 'px';
+  menu.style.left = r.left + 'px';
   menu.classList.toggle('open');
   if (e) e.stopPropagation();
 }
 document.addEventListener('click', e => {
-  if (!e.target.closest('#add-menu')&&!e.target.closest('#btn-add'))
+  if (!e.target.closest('#add-menu') && !e.target.closest('#btn-add'))
     document.getElementById('add-menu').classList.remove('open');
 });
 
 // ----------------------------------------------------------------
-// TOOLBAR ACTIONS
+// TOOLBAR
 // ----------------------------------------------------------------
 export function setGMode(m) {
   S.setGizmoMode(m);
-  ['move','rot','scl'].forEach(k => document.getElementById('btn-'+k).classList.remove('active'));
-  document.getElementById({translate:'btn-move',rotate:'btn-rot',scale:'btn-scl'}[m]).classList.add('active');
+  ['move','rot','scl'].forEach(k => document.getElementById('btn-' + k).classList.remove('active'));
+  document.getElementById({ translate:'btn-move', rotate:'btn-rot', scale:'btn-scl' }[m]).classList.add('active');
 }
 export function toggleSpace() {
-  S.setGizmoSpace(S.gizmoSpace==='world'?'local':'world');
-  document.getElementById('btn-space').textContent = S.gizmoSpace==='world'?'Global':'Local';
+  S.setGizmoSpace(S.gizmoSpace === 'world' ? 'local' : 'world');
+  document.getElementById('btn-space').textContent = S.gizmoSpace === 'world' ? 'Global' : 'Local';
 }
 export function toggleSnap(t) {
   S.snap[t] = !S.snap[t];
-  const btn = document.getElementById('snap-'+t+'-tb');
+  const btn = document.getElementById('snap-' + t + '-tb');
   if (btn) btn.classList.toggle('snap-on', S.snap[t]);
 }
 
 // ----------------------------------------------------------------
 // CAMERA PANEL
 // ----------------------------------------------------------------
-export function applyCamTemplate(name) {
-  Ctrl.applyTemplate(name);
-  _refreshCamPanel();
-}
+export function applyCamTemplate(name) { Ctrl.applyTemplate(name); _refreshCamPanel(); }
 
 export function applyCamParam() {
-  const d = parseFloat(document.getElementById('cam-dist')?.value)  || 5;
+  const d = parseFloat(document.getElementById('cam-dist')?.value)   || 5;
   const h = parseFloat(document.getElementById('cam-height')?.value) || 2;
   const p = parseFloat(document.getElementById('cam-pitch')?.value)  || -0.2;
   const l = parseFloat(document.getElementById('cam-lerp')?.value)   || 0.10;
   const f = parseFloat(document.getElementById('cam-fov')?.value)    || 65;
   Ctrl.setCamSettings({ camD: d, camY: h, camPitchBase: p, camLerp: l, camFOV: f });
-  // Mark template as Custom
   const sel = document.getElementById('cam-template');
   if (sel) sel.value = 'Custom';
 }
@@ -335,56 +382,41 @@ export function applyCamParam() {
 export function applyVehDirection(val) {
   const ent = S.selEnt;
   if (!ent?.controllable?.stats) { showToast('Selecione um Veículo ou Moto.'); return; }
-  const sign = parseFloat(val);
-  ent.controllable.stats.forwardSign = sign;
+  ent.controllable.stats.forwardSign = parseFloat(val);
   _refreshVehDirUI(ent);
 }
-
 export function applyVehSteering(val) {
   const ent = S.selEnt;
   if (!ent?.controllable?.stats) { showToast('Selecione um Veículo ou Moto.'); return; }
-  const sign = parseFloat(val);
-  ent.controllable.stats.steerSign = sign;
+  ent.controllable.stats.steerSign = parseFloat(val);
   _refreshVehDirUI(ent);
 }
-
 function _refreshVehDirUI(ent) {
-  const st = ent?.controllable?.stats;
-  if (!st) return;
-  // Update toggle buttons visual state
-  const fwd  = document.getElementById('veh-fwd-normal');
-  const fwdI = document.getElementById('veh-fwd-invert');
-  const stL  = document.getElementById('veh-steer-normal');
-  const stLI = document.getElementById('veh-steer-invert');
-  if (fwd)  fwd.classList.toggle('active',  (st.forwardSign ?? 1) === 1);
-  if (fwdI) fwdI.classList.toggle('active', (st.forwardSign ?? 1) === -1);
-  if (stL)  stL.classList.toggle('active',  (st.steerSign   ?? 1) === 1);
-  if (stLI) stLI.classList.toggle('active', (st.steerSign   ?? 1) === -1);
+  const st = ent?.controllable?.stats; if (!st) return;
+  document.getElementById('veh-fwd-normal')?.classList.toggle('active',  (st.forwardSign ?? 1) ===  1);
+  document.getElementById('veh-fwd-invert')?.classList.toggle('active',  (st.forwardSign ?? 1) === -1);
+  document.getElementById('veh-steer-normal')?.classList.toggle('active', (st.steerSign   ?? 1) ===  1);
+  document.getElementById('veh-steer-invert')?.classList.toggle('active', (st.steerSign   ?? 1) === -1);
 }
-
-export function refreshVehDirPanel() {
-  _refreshVehDirUI(S.selEnt);
-}
+export function refreshVehDirPanel() { _refreshVehDirUI(S.selEnt); }
 
 function _refreshCamPanel() {
   const cs = Ctrl.activeCamSettings;
-  const $ = id => document.getElementById(id);
+  const $  = id => document.getElementById(id);
   if ($('cam-dist'))   $('cam-dist').value   = cs.camD         ?? 5;
   if ($('cam-height')) $('cam-height').value  = cs.camY         ?? 2;
   if ($('cam-pitch'))  $('cam-pitch').value   = cs.camPitchBase ?? -0.2;
   if ($('cam-lerp'))   $('cam-lerp').value    = cs.camLerp      ?? 0.10;
   if ($('cam-fov'))    $('cam-fov').value     = cs.camFOV       ?? 65;
 }
-
 export function refreshCamPanel() { _refreshCamPanel(); }
 
 // ----------------------------------------------------------------
-// EFFECTS PANEL
+// EFFECTS
 // ----------------------------------------------------------------
 export function attachFX() {
-  const ent = S.selEnt;
-  if (!ent) { showToast('Selecione um objeto primeiro.'); return; }
-  const fx = document.getElementById('fx-loop-select')?.value;
+  const ent = S.selEnt; if (!ent) { showToast('Selecione um objeto primeiro.'); return; }
+  const fx  = document.getElementById('fx-loop-select')?.value;
   if (!fx) { showToast('Selecione um efeito.'); return; }
   const offsetY = parseFloat(document.getElementById('fx-offset-y')?.value) || 0.5;
   Effects.attachEffect(ent, fx, offsetY);
@@ -392,23 +424,18 @@ export function attachFX() {
   showToast('✓ Efeito ' + fx + ' adicionado a ' + ent.name);
 }
 export function detachFX() {
-  const ent = S.selEnt;
-  if (!ent) return;
-  const fx = document.getElementById('fx-loop-select')?.value;
-  if (!fx) return;
-  Effects.detachEffect(ent, fx);
-  _refreshFXList(ent);
+  const ent = S.selEnt; if (!ent) return;
+  const fx  = document.getElementById('fx-loop-select')?.value; if (!fx) return;
+  Effects.detachEffect(ent, fx); _refreshFXList(ent);
 }
 export function spawnFX() {
   const fx  = document.getElementById('fx-event-select')?.value;
-  const pos = S.selEnt?.mesh?.position?.clone() || new THREE.Vector3(0,1,0);
+  const pos = S.selEnt?.mesh?.position?.clone() || new THREE.Vector3(0, 1, 0);
   if (!fx) return;
-  Effects.spawn(fx, pos);
-  showToast('▶ ' + fx + ' preview');
+  Effects.spawn(fx, pos); showToast('▶ ' + fx + ' preview');
 }
 function _refreshFXList(ent) {
-  const el = document.getElementById('fx-active-list');
-  if (!el) return;
+  const el   = document.getElementById('fx-active-list'); if (!el) return;
   const list = ent._effects || [];
   el.textContent = list.length ? list.map(e => e.effect + ' (Y+' + e.offsetY + ')').join(', ') : 'Nenhum efeito ativo';
 }
@@ -418,74 +445,64 @@ function _refreshFXList(ent) {
 // ----------------------------------------------------------------
 export function toggleFullscreen() {
   const vp = document.getElementById('vp-wrap');
-  if (!document.fullscreenElement) {
-    (vp.requestFullscreen || vp.webkitRequestFullscreen).call(vp);
-  } else {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  }
+  if (!document.fullscreenElement) (vp.requestFullscreen || vp.webkitRequestFullscreen).call(vp);
+  else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
 }
 document.addEventListener('fullscreenchange', () => {
-  const isFull = !!document.fullscreenElement;
-  document.getElementById('btn-full')?.classList.toggle('active', isFull);
+  document.getElementById('btn-full')?.classList.toggle('active', !!document.fullscreenElement);
   onResize();
 });
 
 // ----------------------------------------------------------------
-// EXPORT GAME
+// EXPORT
 // ----------------------------------------------------------------
-export function exportGameHTML() {
-  exportGame();
-}
+export function exportGameHTML() { exportGame(); }
 
 // ----------------------------------------------------------------
-// INSPECTOR ACTIONS (delegated from HTML onclick)
+// INSPECTOR ACTIONS
 // ----------------------------------------------------------------
 export function deleteSel() {
   if (!S.selEnt) return;
-  if (outMesh) { outMesh.parent?.remove(outMesh); outMesh=null; }
+  if (outMesh) { outMesh.parent?.remove(outMesh); outMesh = null; }
   Ents.removeEnt(S.selEnt);
-  S.setSelEnt(null); Gizmos.gGrp.visible=false;
+  S.setSelEnt(null); Gizmos.gGrp.visible = false;
   Inspector.refresh(); Inspector.refreshHier(); updStatus();
 }
 export function dupSel() {
   if (!S.selEnt) return;
-  const e=Ents.createEnt(S.selEnt.type, S.selEnt.name+'_copy');
+  const e = Ents.createEnt(S.selEnt.type, S.selEnt.name + '_copy');
   e.mesh.position.copy(S.selEnt.mesh.position).addScalar(.6);
   e.mesh.rotation.copy(S.selEnt.mesh.rotation);
   e.mesh.scale.copy(S.selEnt.mesh.scale);
   selectEnt(e);
 }
-export function focusSel() { if (S.selEnt) { orb.tgt.copy(S.selEnt.mesh.position); orb.update(); } }
-export function resetXf()  { Inspector.resetXf(); Gizmos.update(S.selEnt); }
+export function focusSel()    { if (S.selEnt) { orb.tgt.copy(S.selEnt.mesh.position); orb.update(); } }
+export function resetXf()     { Inspector.resetXf(); Gizmos.update(S.selEnt); }
 export function applyImpulse() {
-  const iy=+document.getElementById('imp-y').value||5;
+  const iy = +document.getElementById('imp-y').value || 5;
   Physics.applyImpulse(S.selEnt, iy);
 }
 export function togVis(e, id) {
   e.stopPropagation();
-  const ent=S.entities.find(e=>e.id===id); if (!ent) return;
-  ent.visible=!ent.visible; ent.mesh.visible=ent.visible; Inspector.refreshHier();
+  const ent = S.entities.find(e => e.id === id); if (!ent) return;
+  ent.visible = !ent.visible; ent.mesh.visible = ent.visible; Inspector.refreshHier();
 }
 
 // ----------------------------------------------------------------
 // SCRIPTS
 // ----------------------------------------------------------------
-export function addScript() {
-  if (!S.selEnt) return;
-  const n=ScriptEd.add(S.selEnt); Inspector.refreshSc(); ScriptEd.open(S.selEnt,n);
-}
-export function openSCEditor(n) { ScriptEd.open(S.selEnt,n); }
-export function rmScript(n)     { ScriptEd.remove(S.selEnt,n); Inspector.refreshSc(); }
-export function applyScript()   { ScriptEd.apply(S.selEnt); Inspector.refreshSc(); }
-export function closeSCEditor() { ScriptEd.close(); }
+export function addScript()       { if (!S.selEnt) return; const n = ScriptEd.add(S.selEnt); Inspector.refreshSc(); ScriptEd.open(S.selEnt, n); }
+export function openSCEditor(n)   { ScriptEd.open(S.selEnt, n); }
+export function rmScript(n)       { ScriptEd.remove(S.selEnt, n); Inspector.refreshSc(); }
+export function applyScript()     { ScriptEd.apply(S.selEnt); Inspector.refreshSc(); }
+export function closeSCEditor()   { ScriptEd.close(); }
 
 // ----------------------------------------------------------------
 // KEYBINDS
 // ----------------------------------------------------------------
 export function startListen(action) {
   if (!S.selEnt?.controllable) return;
-  const el = document.getElementById('kbi-' + action);
-  if (!el) return;
+  const el = document.getElementById('kbi-' + action); if (!el) return;
   el.classList.add('listening'); el.value = '...';
   nextKey().then(({ code, label }) => {
     S.selEnt.controllable.keybinds[action].key   = code;
@@ -502,18 +519,16 @@ export function resetKB() {
 // ----------------------------------------------------------------
 // SERIALIZER
 // ----------------------------------------------------------------
-export function exportScene()     { Serializer.exportScene(); }
-export function importScene(ev)   { Serializer.importScene(ev.target.files[0], () => { Inspector.refresh(); Inspector.refreshHier(); updStatus(); }); ev.target.value=''; }
-export function importGLTF(ev)    { Serializer.importGLTF(ev.target.files[0], ent => { selectEnt(ent); Inspector.refreshHier(); updStatus(); }); ev.target.value=''; }
+export function exportScene()   { Serializer.exportScene(); }
+export function importScene(ev) { Serializer.importScene(ev.target.files[0], () => { Inspector.refresh(); Inspector.refreshHier(); updStatus(); }); ev.target.value = ''; }
+export function importGLTF(ev)  { Serializer.importGLTF(ev.target.files[0], ent => { selectEnt(ent); Inspector.refreshHier(); updStatus(); }); ev.target.value = ''; }
 
 // ----------------------------------------------------------------
 // KEYBOARD SHORTCUTS
 // ----------------------------------------------------------------
 document.addEventListener('keydown', e => {
-  if (Inspector.onKeyForRebind(e)) return; // intercept keybind reassignment
+  if (Inspector.onKeyForRebind(e)) return;
 
-  // Em preview mode: bloqueia TUDO do editor e previne comportamentos padrão
-  // (Space ativa botão focado, arrows fazem scroll, etc.)
   if (S.pvActive) {
     e.preventDefault();
     if (e.key === 'Escape') togglePreview();
@@ -523,12 +538,11 @@ document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (document.getElementById('sc-overlay').classList.contains('open')) return;
 
-  // Previne Space/arrows de acionar botões focados ou rolar a página
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
     e.preventDefault();
   }
 
-  switch(e.key) {
+  switch (e.key) {
     case 'w': case 'W': setGMode('translate'); break;
     case 'e': case 'E': setGMode('rotate');    break;
     case 'r': case 'R': setGMode('scale');     break;
@@ -546,7 +560,7 @@ document.addEventListener('keydown', e => {
 // ----------------------------------------------------------------
 function updStatus() {
   document.getElementById('status-txt').textContent =
-    `${S.entities.length} obj${S.selEnt?' — '+S.selEnt.name:''}${S.playing?' | ▶':''}${S.pvActive?' | ◎':''}`;
+    `${S.entities.length} obj${S.selEnt ? ' — ' + S.selEnt.name : ''}${S.playing ? ' | ▶' : ''}${S.pvActive ? ' | ◎' : ''}`;
 }
 
 // ----------------------------------------------------------------
@@ -557,24 +571,23 @@ Inspector.refreshHier();
 Inspector.refresh();
 updStatus();
 
-let last=performance.now(), frames=0, fpsT=0;
+let last = performance.now(), frames = 0, fpsT = 0;
 function loop() {
   requestAnimationFrame(loop);
-  const now=performance.now(), dt=Math.min((now-last)/1000,.05); last=now;
-  frames++; fpsT+=dt;
-  if (fpsT>=.5) {
-    document.getElementById('info-fps').textContent='FPS: '+Math.round(frames/fpsT);
-    document.getElementById('info-tri').textContent='Tri: '+S.renderer.info.render.triangles.toLocaleString();
-    document.getElementById('info-obj').textContent='Obj: '+S.entities.length;
-    frames=0; fpsT=0; updStatus();
+  const now = performance.now(), dt = Math.min((now - last) / 1000, .05); last = now;
+  frames++; fpsT += dt;
+  if (fpsT >= .5) {
+    document.getElementById('info-fps').textContent = 'FPS: ' + Math.round(frames / fpsT);
+    document.getElementById('info-tri').textContent = 'Tri: ' + S.renderer.info.render.triangles.toLocaleString();
+    document.getElementById('info-obj').textContent = 'Obj: ' + S.entities.length;
+    frames = 0; fpsT = 0; updStatus();
   }
 
   Physics.step(dt);
   Collision.step();
   Combat.tickHealth(dt);
-  Effects.update(dt);      // particle systems
+  Effects.update(dt);
 
-  // Tick ALL entity animators every frame (mixer needs continuous update)
   S.entities.forEach(e => { if (e.animMgr) e.animMgr.update(dt); });
 
   if (S.pvActive) { Ctrl.update(dt); Char.drawHUD(); }

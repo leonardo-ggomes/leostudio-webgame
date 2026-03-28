@@ -1,5 +1,18 @@
 // ================================================================
-// controllers/HumanoidController.js — GTA V-style movement + aim
+// controllers/HumanoidController.js — GTA V / Ready or Not style
+//
+// MIRA:
+//   S.mouseAim = false  →  hip fire
+//     • câmera orbita livremente pelo mouse
+//     • personagem gira só na direção do movimento (WASD)
+//     • crosshair NÃO aparece
+//
+//   S.mouseAim = true   →  ADS (RMB segurado)
+//     • câmera trava no ombro direito (controllableSystem)
+//     • personagem gira JUNTO com o mouse (corpo segue a mira)
+//     • crosshair aparece, LMB atira
+//     • strafe: WASD move em relação à direção da câmera, corpo
+//       continua apontado para onde o mouse está
 // ================================================================
 import * as THREE from 'three';
 import * as S from '../state.js';
@@ -15,7 +28,7 @@ const STATE = { IDLE:'idle', WALK:'walk', RUN:'run', JUMP:'jump', FALL:'fall', L
 export class HumanoidController {
   onEnter(entity) {
     this._vel          = new THREE.Vector3();
-    const box = entity.mesh ? new THREE.Box3().setFromObject(entity.mesh) : null;
+    const box          = entity.mesh ? new THREE.Box3().setFromObject(entity.mesh) : null;
     this._grounded     = box ? box.min.y <= 0.2 : false;
     this._wasGrounded  = this._grounded;
     this._state        = this._grounded ? STATE.IDLE : STATE.FALL;
@@ -37,8 +50,12 @@ export class HumanoidController {
     if (!m || !ch) return;
 
     this._wasGrounded = this._grounded;
-    this._isAiming    = input.aim;
 
+    // ADS ativado pelo RMB segurado — lido de S.mouseAim
+    // que é setado pelo handler de mousemove do main.js.
+    this._isAiming = S.mouseAim || input.aim;
+
+    // ---- Direções relativas à câmera ----
     const fwd = new THREE.Vector3(-Math.sin(S.camYaw), 0, -Math.cos(S.camYaw));
     const rgt = new THREE.Vector3( Math.cos(S.camYaw), 0, -Math.sin(S.camYaw));
     const mv  = new THREE.Vector3();
@@ -46,14 +63,15 @@ export class HumanoidController {
     if (input.backward) mv.addScaledVector(fwd, -1);
     if (input.left)     mv.addScaledVector(rgt, -1);
     if (input.right)    mv.addScaledVector(rgt,  1);
-    const hasInput = mv.length() > .01;
+    const hasInput = mv.length() > 0.01;
     if (hasInput) mv.normalize();
 
     const sprinting = input.sprint && this._grounded && !this._isAiming;
     const speed     = this._isAiming
-      ? ch.stats.speed * 0.4   // caminha devagar enquanto mira (GTA V)
+      ? ch.stats.speed * 0.45
       : sprinting ? ch.stats.sprint : ch.stats.speed;
 
+    // ---- Física horizontal ----
     if (this._grounded) {
       const accel = ch.stats.accel;
       this._vel.x += ((hasInput ? mv.x * speed : 0) - this._vel.x) * Math.min(1, accel * dt);
@@ -63,13 +81,14 @@ export class HumanoidController {
       this._vel.z *= Math.max(0, 1 - AIR_DRAG * dt);
     }
 
+    // ---- Gravidade ----
     const gravMult = this._vel.y < 0 ? FALL_MULT
                    : (!input.jump && this._vel.y > 0) ? LOW_JUMP_MULT : 1.0;
     this._vel.y += GRAV * gravMult * dt;
-
     m.position.addScaledVector(this._vel, dt);
 
-    const box  = new THREE.Box3().setFromObject(m);
+    // ---- Chão ----
+    const box = new THREE.Box3().setFromObject(m);
     if (box.min.y <= 0) {
       m.position.y -= box.min.y;
       if (this._vel.y < 0) this._vel.y = 0;
@@ -78,23 +97,25 @@ export class HumanoidController {
       this._grounded = false;
     }
 
+    // ---- Pulo ----
     if (!this._jumpConsumed && this._grounded && input.jump) {
-      this._vel.y      = ch.stats.jump;
-      this._grounded   = false;
+      this._vel.y        = ch.stats.jump;
+      this._grounded     = false;
       this._jumpConsumed = true;
     }
     if (!input.jump) this._jumpConsumed = false;
 
-    // ---- Rotação — GTA V style ----
+    // ---- Rotação ----
     if (this._isAiming) {
-      // No ADS: player SEMPRE olha na direção da câmera (trava na câmera)
-      const targetYaw = S.camYaw;
-      let df = targetYaw - m.rotation.y;
+      // ADS: corpo gira JUNTO com o mouse (S.camYaw atualizado em
+      // tempo real pelo mousemove do main.js enquanto RMB pressionado).
+      let df = S.camYaw - m.rotation.y;
       while (df >  Math.PI) df -= Math.PI * 2;
       while (df < -Math.PI) df += Math.PI * 2;
-      m.rotation.y += df * Math.min(1, 20 * dt); // gira rápido para câmera
+      m.rotation.y += df * Math.min(1, 25 * dt);
+
     } else if (hasInput && this._grounded && this._landTimer <= 0) {
-      // Sem mira: rotaciona na direção do movimento
+      // Hip fire: gira apenas na direção do movimento
       const ta = Math.atan2(mv.x, mv.z);
       let df   = ta - m.rotation.y;
       while (df >  Math.PI) df -= Math.PI * 2;
@@ -114,7 +135,6 @@ export class HumanoidController {
       if (mgr) { mgr._locked = false; mgr.currentState = null; mgr.setState('land', { once: true }); }
       return;
     }
-
     if (this._landTimer > 0) { this._landTimer -= dt; return; }
 
     if (!this._grounded) {
@@ -135,7 +155,12 @@ export class HumanoidController {
 
   getCameraOffset(entity) {
     const ch = entity.controllable;
-    return { yawOffset: S.camYaw, pitchOffset: S.camPitch, distance: ch.stats.camD, heightTarget: ch.stats.camY };
+    return {
+      yawOffset:    S.camYaw,
+      pitchOffset:  S.camPitch,
+      distance:     ch.stats.camD,
+      heightTarget: ch.stats.camY,
+    };
   }
 
   getVelocity()  { return this._vel; }
